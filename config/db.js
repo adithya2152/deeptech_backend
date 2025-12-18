@@ -12,6 +12,7 @@ const pool = new Pool({
   connectionTimeoutMillis: 5000, // Wait time for new connection before error
 });
 
+
 pool.on("error", (err) => {
   console.error("Unexpected error on idle PostgreSQL client:", err.message);
   // Don't exit here unless you want the app to crash; just log it
