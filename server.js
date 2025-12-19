@@ -30,6 +30,7 @@ app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerDocs));
 
 app.use('/api/projects', require('./routes/projectRoutes'));
 app.use('/api/experts', require('./routes/expertRoutes'));
+app.use('/api/conversations', require('./routes/messageRoutes')); 
 
 app.get('/', (req, res) => {
   res.json({ message: "DeepTech API Running" });

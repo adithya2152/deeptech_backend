@@ -1,49 +1,73 @@
 const pool = require('../config/db');
 
+// Get all projects for user
+exports.getProjectsByUser = async (userId) => {
+  const sql = `
+    SELECT * FROM projects WHERE client_id = $1 ORDER BY created_at DESC
+  `;
+  const { rows } = await pool.query(sql, [userId]);
+  return rows;
+};
+
+// Get single project
+exports.getProjectById = async (id) => {
+  const sql = `
+    SELECT 
+      p.*, 
+      json_build_object('id', u.id, 'name', u.first_name || ' ' || u.last_name, 'email', u.email) as client
+    FROM projects p
+    JOIN profiles u ON p.client_id = u.id
+    WHERE p.id = $1
+  `;
+  const { rows } = await pool.query(sql, [id]);
+  return rows[0];
+};
+
+// Create Project
 exports.createProject = async (data) => {
-  const { title, description, domain, trlLevel, expectedOutcome, clientId, riskCategories, budgetMin, budgetMax, deadline } = data;
+  const { 
+    client_id, title, description, domain, trl_level, 
+    expected_outcome, risk_categories, budget_min, budget_max, deadline 
+  } = data;
 
-  const query = `
-    INSERT INTO projects (title, description, domain, trl_level, expected_outcome, client_id, status, risk_categories, budget_min, budget_max, deadline)
-    VALUES ($1, $2, $3, $4, $5, $6, 'open', $7, $8, $9, $10)
+  const sql = `
+    INSERT INTO projects (
+      id, client_id, title, description, domain, trl_level, 
+      expected_outcome, risk_categories, budget_min, budget_max, deadline, status, created_at
+    )
+    VALUES (
+      gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7::text[], $8, $9, $10, 'open', NOW()
+    )
     RETURNING *;
   `;
+  
+  const params = [
+    client_id, title, description, domain, trl_level, 
+    expected_outcome, risk_categories || [], budget_min, budget_max, deadline
+  ];
 
-  const values = [title, description, domain, trlLevel, expectedOutcome, clientId, riskCategories, budgetMin || null, budgetMax || null, deadline || null];
-
-  const { rows } = await pool.query(query, values);
+  const { rows } = await pool.query(sql, params);
   return rows[0];
 };
 
-exports.updateProject = async (id, data) => {
-  const { title, description, domain, trlLevel, expectedOutcome, riskCategories, budgetMin, budgetMax, deadline, status } = data;
-
-  const query = `
+// Update Project
+exports.updateProject = async (id, updates) => {
+  const sql = `
     UPDATE projects 
-    SET 
-      title = COALESCE($1, title),
-      description = COALESCE($2, description),
-      domain = COALESCE($3, domain),
-      trl_level = COALESCE($4, trl_level),
-      expected_outcome = COALESCE($5, expected_outcome),
-      risk_categories = COALESCE($6, risk_categories),
-      budget_min = COALESCE($7, budget_min),
-      budget_max = COALESCE($8, budget_max),
-      deadline = COALESCE($9, deadline),
-      status = COALESCE($10, status),
-      updated_at = NOW()
-    WHERE id = $11
+    SET title = COALESCE($2, title),
+        description = COALESCE($3, description),
+        status = COALESCE($4, status),
+        updated_at = NOW()
+    WHERE id = $1
     RETURNING *;
   `;
-
-  const values = [title, description, domain, trlLevel, expectedOutcome, riskCategories, budgetMin, budgetMax, deadline, status, id];
-
-  const { rows } = await pool.query(query, values);
+  const { rows } = await pool.query(sql, [id, updates.title, updates.description, updates.status]);
   return rows[0];
 };
 
+// Delete Project
 exports.deleteProject = async (id) => {
-  const query = 'DELETE FROM projects WHERE id = $1 RETURNING *;';
-  const { rows } = await pool.query(query, [id]);
+  const sql = `DELETE FROM projects WHERE id = $1 RETURNING id`;
+  const { rows } = await pool.query(sql, [id]);
   return rows[0];
 };

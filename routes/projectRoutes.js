@@ -2,6 +2,46 @@ const express = require('express');
 const router = express.Router();
 const projectController = require('../controllers/projectController');
 
+// --- MOCK AUTH (Simulates "John Client") ---
+const mockClientAuth = (req, res, next) => {
+  req.user = { id: '64fa75fb-517a-46b0-8b67-12ccfad6d4aa' };
+  next();
+};
+
+/**
+ * @swagger
+ * /api/projects:
+ *   get:
+ *     summary: Get all projects for current user
+ *     tags:
+ *       - Projects
+ *     responses:
+ *       200:
+ *         description: List of projects
+ */
+router.get('/', mockClientAuth, projectController.getMyProjects);
+
+/**
+ * @swagger
+ * /api/projects/{id}:
+ *   get:
+ *     summary: Get single project details
+ *     tags:
+ *       - Projects
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Project details
+ *       404:
+ *         description: Project not found
+ */
+router.get('/:id', mockClientAuth, projectController.getProjectById);
+
 /**
  * @swagger
  * /api/projects:
@@ -48,7 +88,7 @@ const projectController = require('../controllers/projectController');
  *       500:
  *         description: Server error
  */
-router.post('/', projectController.createProject);
+router.post('/', mockClientAuth ,projectController.createProject);
 
 /**
  * @swagger
@@ -86,7 +126,7 @@ router.post('/', projectController.createProject);
  *       500:
  *         description: Server error
  */
-router.put('/:id', projectController.updateProject);
+router.put('/:id', mockClientAuth, projectController.updateProject);
 
 /**
  * @swagger
@@ -110,6 +150,6 @@ router.put('/:id', projectController.updateProject);
  *       500:
  *         description: Server error
  */
-router.delete('/:id', projectController.deleteProject);
+router.delete('/:id', mockClientAuth,projectController.deleteProject);
 
 module.exports = router;

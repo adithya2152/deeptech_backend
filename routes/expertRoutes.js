@@ -6,7 +6,7 @@ const expertController = require('../controllers/expertController');
  * @swagger
  * /api/experts:
  *   get:
- *     summary: Search for experts
+ *     summary: Get filtered list of experts
  *     tags:
  *       - Experts
  *     parameters:
@@ -14,20 +14,60 @@ const expertController = require('../controllers/expertController');
  *         name: domain
  *         schema:
  *           type: string
- *         description: Filter experts by domain
+ *         description: Comma-separated domains (e.g. ai,robotics)
  *       - in: query
  *         name: query
  *         schema:
  *           type: string
- *         description: Search text for bio or name
+ *         description: Search by name or bio
+ *       - in: query
+ *         name: rateMin
+ *         schema:
+ *           type: integer
+ *         description: Minimum hourly rate
+ *       - in: query
+ *         name: rateMax
+ *         schema:
+ *           type: integer
+ *         description: Maximum hourly rate
+ *       - in: query
+ *         name: onlyVerified
+ *         schema:
+ *           type: boolean
+ *         description: Set to true to see only vetted experts
  *     responses:
  *       200:
  *         description: List of experts
  *         content:
  *           application/json:
  *             schema:
- *               type: array
+ *               type: object
+ *               properties:
+ *                 experts:
+ *                   type: array
  */
 router.get('/', expertController.searchExperts);
+
+/**
+ * @swagger
+ * /api/experts/{id}:
+ *   get:
+ *     summary: Get single expert profile
+ *     tags:
+ *       - Experts
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: The expert UUID
+ *     responses:
+ *       200:
+ *         description: Expert profile details
+ *       404:
+ *         description: Expert not found
+ */
+router.get('/:id', expertController.getExpertById);
 
 module.exports = router;
