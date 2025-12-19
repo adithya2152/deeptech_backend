@@ -1,51 +1,68 @@
-require('dotenv').config({ quiet: true });
-const express = require('express');
-const cors = require('cors');
-const swaggerUi = require('swagger-ui-express');
-const swaggerJsdoc = require('swagger-jsdoc');
+import express from 'express';
+import dotenv from 'dotenv';
+import pool from './config/db.js';
+
+
+
+dotenv.config();
 
 const app = express();
-const PORT = process.env.PORT || 5000;
+const port = process.env.PORT || 3000;
 
-app.use(cors());
 app.use(express.json());
 
-const swaggerOptions = {
-  definition: {
-    openapi: '3.0.0',
-    info: {
-      title: 'DeepTech Platform API',
-      version: '1.0.0',
-      description: 'API for projects and experts',
-    },
-    servers: [
-      { url: `http://localhost:${PORT}` }
-    ],
-    tags: [
-      { name: 'Contract Lifecycle', description: 'Hiring and status management' },
-      { name: 'Hour Logging', description: 'Expert work tracking' },
-      { name: 'Contract Review & Analytics', description: 'Buyer approvals and summaries' },
-      { name: 'Projects', description: 'Project management' },
-      { name: 'Experts', description: 'Expert discovery' },
-      { name: 'Messages', description: 'Communication' }
-    ],
-  },
-  apis: ['./routes/*.js'],
-};
+app.use(
+    cors({
+        origin:true,
+        credentials:true,
+    })
+);
 
-const swaggerDocs = swaggerJsdoc(swaggerOptions);
-app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerDocs));
-
-app.use('/api/projects', require('./routes/projectRoutes'));
-app.use('/api/experts', require('./routes/expertRoutes'));
-app.use('/api/conversations', require('./routes/messageRoutes')); 
-app.use('/api/contracts', require('./routes/contractRoutes'));
-
-app.get('/', (req, res) => {
-  res.json({ message: "DeepTech API Running" });
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+  if (origin) {
+    res.header("Access-Control-Allow-Origin", origin);
+  }
+  res.header("Access-Control-Allow-Credentials", "true");
+  res.header("Access-Control-Allow-Methods", "GET,PUT,POST,DELETE,OPTIONS");
+  res.header("Access-Control-Allow-Headers", "Content-Type, Authorization, x-auth-token");
+  
+  // Handle preflight requests
+  if (req.method === 'OPTIONS') {
+    res.sendStatus(200);
+    return;
+  }
+  
+  next();
 });
 
-app.listen(PORT, () => {
-  console.log(`Server running on http://localhost:${PORT}`);
-  console.log(`Swagger Docs at http://localhost:${PORT}/api-docs`);
+
+// Test route to check the database connection
+app.get("/", async (req, res) => {
+  console.log(process.env.PG_HOST);
+
+  try {
+    const result = await pool.query("SELECT NOW()"); // Test query to check connection.
+    res.json(result.rows);
+  } catch (err) {
+    console.error(err.message);
+    res.status(500).json({ status: "error", message: err.message });
+  }
 });
+
+// Health check endpoint for API testing
+app.get("/api/health", async (req, res) => {
+  try {
+    const result = await pool.query("SELECT NOW()"); // Test query to check connection.
+    res.json({
+      status: "healthy",
+      serverTime: result.rows[0].now,
+      message: "Server is running and database is connected"
+    });
+  } catch (err) {
+    console.error(err.message);
+    res.status(500).json({ status: "error", message: err.message });
+  }
+});
+
+app.use("/api/auth",userAuthRoutes)
