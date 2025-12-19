@@ -1,22 +1,20 @@
 const projectModel = require('../models/projectModel');
 
-// GET: My Projects
 exports.getMyProjects = async (req, res) => {
   try {
-    const userId = req.user.id; // From Mock Auth
-    const projects = await projectModel.getProjectsByUser(userId);
-    res.status(200).json({ projects });
+    const userId = req.user.id; 
+    const projects = await projectModel.getProjectsByClient(userId);
+    res.status(200).json(projects); 
   } catch (error) {
     console.error("GET PROJECTS ERROR:", error);
     res.status(500).json({ error: 'Server error' });
   }
 };
 
-// GET: Single Project
 exports.getProjectById = async (req, res) => {
   try {
     const { id } = req.params;
-    const project = await projectModel.getProjectById(id);
+    const project = await projectModel.getById(id);
 
     if (!project) {
       return res.status(404).json({ error: 'Project not found' });
@@ -28,14 +26,22 @@ exports.getProjectById = async (req, res) => {
   }
 };
 
-// POST: Create Project
 exports.createProject = async (req, res) => {
   try {
     const projectData = {
-      ...req.body,
-      client_id: req.user.id // From Mock Auth
+      title: req.body.title,
+      description: req.body.description,
+      client_id: req.user.id,
+      domain: req.body.domain,
+      trl_level: req.body.trlLevel, 
+      risk_categories: req.body.riskCategories,
+      expected_outcome: req.body.expectedOutcome,
+      budget_min: req.body.budgetMin,
+      budget_max: req.body.budgetMax,
+      deadline: req.body.deadline
     };
-    const newProject = await projectModel.createProject(projectData);
+    
+    const newProject = await projectModel.create(projectData);
     res.status(201).json(newProject);
   } catch (error) {
     console.error("CREATE PROJECT ERROR:", error);
@@ -43,11 +49,10 @@ exports.createProject = async (req, res) => {
   }
 };
 
-// PUT: Update Project
 exports.updateProject = async (req, res) => {
   try {
     const { id } = req.params;
-    const updatedProject = await projectModel.updateProject(id, req.body);
+    const updatedProject = await projectModel.update(id, req.body);
     
     if (!updatedProject) {
       return res.status(404).json({ error: 'Project not found' });
@@ -59,13 +64,12 @@ exports.updateProject = async (req, res) => {
   }
 };
 
-// DELETE: Delete Project
 exports.deleteProject = async (req, res) => {
   try {
     const { id } = req.params;
-    const deletedProject = await projectModel.deleteProject(id);
+    const result = await projectModel.delete(id);
     
-    if (!deletedProject) {
+    if (!result) {
       return res.status(404).json({ error: 'Project not found' });
     }
     res.status(200).json({ message: 'Project deleted successfully' });

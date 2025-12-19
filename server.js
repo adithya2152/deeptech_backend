@@ -21,6 +21,14 @@ const swaggerOptions = {
     servers: [
       { url: `http://localhost:${PORT}` }
     ],
+    tags: [
+      { name: 'Contract Lifecycle', description: 'Hiring and status management' },
+      { name: 'Hour Logging', description: 'Expert work tracking' },
+      { name: 'Contract Review & Analytics', description: 'Buyer approvals and summaries' },
+      { name: 'Projects', description: 'Project management' },
+      { name: 'Experts', description: 'Expert discovery' },
+      { name: 'Messages', description: 'Communication' }
+    ],
   },
   apis: ['./routes/*.js'],
 };
@@ -31,6 +39,7 @@ app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerDocs));
 app.use('/api/projects', require('./routes/projectRoutes'));
 app.use('/api/experts', require('./routes/expertRoutes'));
 app.use('/api/conversations', require('./routes/messageRoutes')); 
+app.use('/api/contracts', require('./routes/contractRoutes'));
 
 app.get('/', (req, res) => {
   res.json({ message: "DeepTech API Running" });
