@@ -1,8 +1,7 @@
-const messageModel = require('../models/messageModel');
+import messageModel from '../models/messageModel.js';
 
-exports.getConversations = async (req, res) => {
+export const getConversations = async (req, res) => {
   try {
-    // Assuming req.user.id is the Profile ID from your auth middleware
     const userId = req.user.id; 
     const conversations = await messageModel.getConversations(userId);
     res.status(200).json({ conversations });
@@ -12,7 +11,7 @@ exports.getConversations = async (req, res) => {
   }
 };
 
-exports.getMessages = async (req, res) => {
+export const getMessages = async (req, res) => {
   try {
     const { id } = req.params;
     const messages = await messageModel.getMessages(id);
@@ -23,11 +22,11 @@ exports.getMessages = async (req, res) => {
   }
 };
 
-exports.sendMessage = async (req, res) => {
+export const sendMessage = async (req, res) => {
   try {
-    const { id } = req.params; // Conversation ID
+    const { id } = req.params;
     const { content } = req.body;
-    const senderId = req.user.id; // Sender is current user
+    const senderId = req.user.id;
 
     if (!content) {
       return res.status(400).json({ error: 'Message content is required' });
@@ -41,7 +40,7 @@ exports.sendMessage = async (req, res) => {
   }
 };
 
-exports.markAsRead = async (req, res) => {
+export const markAsRead = async (req, res) => {
   try {
     const { id } = req.params;
     const userId = req.user.id;
@@ -52,4 +51,11 @@ exports.markAsRead = async (req, res) => {
     console.error("MARK READ ERROR:", error);
     res.status(500).json({ error: 'Server error' });
   }
+};
+
+export default {
+  getConversations,
+  getMessages,
+  sendMessage,
+  markAsRead
 };

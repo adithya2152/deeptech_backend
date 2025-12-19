@@ -1,4 +1,4 @@
-const pool = require('../config/db');
+import pool from '../config/db.js';
 
 const Contract = {
     createContract: async (contractData) => {
@@ -68,4 +68,4 @@ const Contract = {
     }
 };
 
-module.exports = Contract;
+export default Contract;

@@ -24,7 +24,7 @@ export const requireRole = (...allowedRoles) => {
 // Specific role middlewares
 export const requireAdmin = requireRole("admin");
 export const requireExpert = requireRole("expert");
-export const requireUser = requireRole("user", "expert", "admin");
+export const requireUser = requireRole("buyer", "expert", "admin");
 
 // Check if user is the resource owner or admin
 export const isOwnerOrAdmin = (req, res, next) => {

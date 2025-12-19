@@ -1,12 +1,8 @@
-const express = require('express');
-const router = express.Router();
-const projectController = require('../controllers/projectController');
+import express from 'express';
+import projectController from '../controllers/projectController.js';
+import { auth } from '../middleware/auth.js';
 
-// --- MOCK AUTH (Simulates "John Client") ---
-const mockClientAuth = (req, res, next) => {
-  req.user = { id: '64fa75fb-517a-46b0-8b67-12ccfad6d4aa' };
-  next();
-};
+const router = express.Router();
 
 /**
  * @swagger
@@ -19,7 +15,7 @@ const mockClientAuth = (req, res, next) => {
  *       200:
  *         description: List of projects
  */
-router.get('/', mockClientAuth, projectController.getMyProjects);
+router.get('/', auth, projectController.getMyProjects);
 
 /**
  * @swagger
@@ -40,7 +36,7 @@ router.get('/', mockClientAuth, projectController.getMyProjects);
  *       404:
  *         description: Project not found
  */
-router.get('/:id', mockClientAuth, projectController.getProjectById);
+router.get('/:id', auth, projectController.getProjectById);
 
 /**
  * @swagger
@@ -88,7 +84,7 @@ router.get('/:id', mockClientAuth, projectController.getProjectById);
  *       500:
  *         description: Server error
  */
-router.post('/', mockClientAuth ,projectController.createProject);
+router.post('/', auth ,projectController.createProject);
 
 /**
  * @swagger
@@ -126,7 +122,45 @@ router.post('/', mockClientAuth ,projectController.createProject);
  *       500:
  *         description: Server error
  */
-router.put('/:id', mockClientAuth, projectController.updateProject);
+router.put('/:id', auth, projectController.updateProject);
+
+/**
+ * @swagger
+ * /api/projects/{id}:
+ *   patch:
+ *     summary: Update a project (partial update)
+ *     tags:
+ *       - Projects
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: The project ID
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               title:
+ *                 type: string
+ *               description:
+ *                 type: string
+ *               status:
+ *                 type: string
+ *                 example: closed
+ *     responses:
+ *       200:
+ *         description: Project updated
+ *       404:
+ *         description: Project not found
+ *       500:
+ *         description: Server error
+ */
+router.patch('/:id', auth, projectController.updateProject);
 
 /**
  * @swagger
@@ -150,6 +184,6 @@ router.put('/:id', mockClientAuth, projectController.updateProject);
  *       500:
  *         description: Server error
  */
-router.delete('/:id', mockClientAuth,projectController.deleteProject);
+router.delete('/:id', auth, projectController.deleteProject);
 
-module.exports = router;
+export default router;

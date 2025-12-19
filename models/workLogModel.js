@@ -1,4 +1,4 @@
-const pool = require('../config/db');
+import pool from '../config/db.js';
 
 const WorkLog = {
     createLog: async (contractId, expertId, logData) => {
@@ -61,4 +61,4 @@ const WorkLog = {
   }
 };
 
-module.exports = WorkLog;
+export default WorkLog;

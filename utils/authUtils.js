@@ -25,7 +25,7 @@ export const comparePassword = async (password, hash) => {
 };
 
 // Generate access token
-export const generateAccessToken = (userId, email, role = "user") => {
+export const generateAccessToken = (userId, email, role = "buyer") => {
   return jwt.sign(
     {
       id: userId,
@@ -52,7 +52,7 @@ export const generateRefreshToken = (userId, email) => {
 };
 
 // Generate both tokens
-export const generateTokens = (userId, email, role = "user") => {
+export const generateTokens = (userId, email, role = "buyer") => {
   return {
     accessToken: generateAccessToken(userId, email, role),
     refreshToken: generateRefreshToken(userId, email),

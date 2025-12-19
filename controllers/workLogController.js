@@ -1,6 +1,6 @@
-const WorkLog = require('../models/workLogModel');
+import WorkLog from '../models/workLogModel.js';
 
-exports.logHours = async (req, res) => {
+export const logHours = async (req, res) => {
   try {
     const log = await WorkLog.createLog(req.params.id, req.user.id, req.body);
     res.status(201).json(log);
@@ -9,7 +9,7 @@ exports.logHours = async (req, res) => {
   }
 };
 
-exports.getHourLogs = async (req, res) => {
+export const getHourLogs = async (req, res) => {
   try {
     const logs = await WorkLog.getLogsByContract(req.params.id);
     res.status(200).json(logs);
@@ -18,7 +18,7 @@ exports.getHourLogs = async (req, res) => {
   }
 };
 
-exports.approveHourLog = async (req, res) => {
+export const approveHourLog = async (req, res) => {
   try {
     const log = await WorkLog.updateStatus(req.params.logId, 'approved', req.body.comment);
     res.status(200).json(log);
@@ -27,7 +27,7 @@ exports.approveHourLog = async (req, res) => {
   }
 };
 
-exports.rejectHourLog = async (req, res) => {
+export const rejectHourLog = async (req, res) => {
   try {
     const log = await WorkLog.updateStatus(req.params.logId, 'rejected', req.body.reason);
     res.status(200).json(log);
@@ -36,7 +36,7 @@ exports.rejectHourLog = async (req, res) => {
   }
 };
 
-exports.getWeeklySummary = async (req, res) => {
+export const getWeeklySummary = async (req, res) => {
   try {
     const { id } = req.params;
     const { week } = req.query;
@@ -45,4 +45,12 @@ exports.getWeeklySummary = async (req, res) => {
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
+};
+
+export default {
+  logHours,
+  getHourLogs,
+  approveHourLog,
+  rejectHourLog,
+  getWeeklySummary
 };

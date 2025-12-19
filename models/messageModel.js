@@ -1,21 +1,16 @@
-const pool = require('../config/db');
+import pool from '../config/db.js';
 
-// Get all conversations for a specific user (Profile ID)
-exports.getConversations = async (profileId) => {
+export const getConversations = async (profileId) => {
   const sql = `
     SELECT 
       c.id,
       c.last_message_at as "lastMessageAt",
-      -- Get the OTHER user's details
       p.id as "otherUserId",
       p.first_name || ' ' || p.last_name as "otherUserName",
       p.role as "otherUserRole",
-      -- Get the last message content
       (SELECT content FROM messages m WHERE m.conversation_id = c.id ORDER BY m.created_at DESC LIMIT 1) as "lastMessage",
-      -- Count unread messages sent BY the other person
       (SELECT COUNT(*)::int FROM messages m WHERE m.conversation_id = c.id AND m.sender_id != $1 AND m.is_read = false) as "unreadCount"
     FROM conversations c
-    -- Join profiles to find the participant who is NOT the current user
     JOIN profiles p ON (CASE WHEN c.participant_1 = $1 THEN c.participant_2 ELSE c.participant_1 END) = p.id
     WHERE c.participant_1 = $1 OR c.participant_2 = $1
     ORDER BY c.last_message_at DESC;
@@ -36,8 +31,7 @@ exports.getConversations = async (profileId) => {
   }));
 };
 
-// Get messages for a specific conversation
-exports.getMessages = async (conversationId) => {
+export const getMessages = async (conversationId) => {
   const sql = `
     SELECT 
       id,
@@ -53,8 +47,7 @@ exports.getMessages = async (conversationId) => {
   return rows;
 };
 
-// Send a new message
-exports.createMessage = async (conversationId, senderId, content) => {
+export const createMessage = async (conversationId, senderId, content) => {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
@@ -78,12 +71,18 @@ exports.createMessage = async (conversationId, senderId, content) => {
   }
 };
 
-// Mark conversation as read
-exports.markAsRead = async (conversationId, userId) => {
+export const markAsRead = async (conversationId, userId) => {
   const sql = `
     UPDATE messages
     SET is_read = true
     WHERE conversation_id = $1 AND sender_id != $2
   `;
   await pool.query(sql, [conversationId, userId]);
+};
+
+export default {
+  getConversations,
+  getMessages,
+  createMessage,
+  markAsRead
 };

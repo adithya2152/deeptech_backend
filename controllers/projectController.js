@@ -1,17 +1,17 @@
-const projectModel = require('../models/projectModel');
+import projectModel from '../models/projectModel.js';
 
-exports.getMyProjects = async (req, res) => {
+export const getMyProjects = async (req, res) => {
   try {
     const userId = req.user.id; 
     const projects = await projectModel.getProjectsByClient(userId);
-    res.status(200).json(projects); 
+    res.status(200).json({ data: projects }); 
   } catch (error) {
     console.error("GET PROJECTS ERROR:", error);
     res.status(500).json({ error: 'Server error' });
   }
 };
 
-exports.getProjectById = async (req, res) => {
+export const getProjectById = async (req, res) => {
   try {
     const { id } = req.params;
     const project = await projectModel.getById(id);
@@ -19,14 +19,14 @@ exports.getProjectById = async (req, res) => {
     if (!project) {
       return res.status(404).json({ error: 'Project not found' });
     }
-    res.status(200).json(project);
+    res.status(200).json({ data: project });
   } catch (error) {
     console.error("GET PROJECT ID ERROR:", error);
     res.status(500).json({ error: 'Server error' });
   }
 };
 
-exports.createProject = async (req, res) => {
+export const createProject = async (req, res) => {
   try {
     const projectData = {
       title: req.body.title,
@@ -42,14 +42,14 @@ exports.createProject = async (req, res) => {
     };
     
     const newProject = await projectModel.create(projectData);
-    res.status(201).json(newProject);
+    res.status(201).json({ message: 'Project created successfully', data: newProject });
   } catch (error) {
     console.error("CREATE PROJECT ERROR:", error);
     res.status(500).json({ error: 'Server error' });
   }
 };
 
-exports.updateProject = async (req, res) => {
+export const updateProject = async (req, res) => {
   try {
     const { id } = req.params;
     const updatedProject = await projectModel.update(id, req.body);
@@ -57,14 +57,14 @@ exports.updateProject = async (req, res) => {
     if (!updatedProject) {
       return res.status(404).json({ error: 'Project not found' });
     }
-    res.status(200).json(updatedProject);
+    res.status(200).json({ message: 'Project updated successfully', data: updatedProject });
   } catch (error) {
     console.error("UPDATE PROJECT ERROR:", error);
     res.status(500).json({ error: 'Server error' });
   }
 };
 
-exports.deleteProject = async (req, res) => {
+export const deleteProject = async (req, res) => {
   try {
     const { id } = req.params;
     const result = await projectModel.delete(id);
@@ -77,4 +77,13 @@ exports.deleteProject = async (req, res) => {
     console.error("DELETE PROJECT ERROR:", error);
     res.status(500).json({ error: 'Server error' });
   }
+};
+
+// Add this at the bottom to fix the "default export" error
+export default {
+  getMyProjects,
+  getProjectById,
+  createProject,
+  updateProject,
+  deleteProject
 };

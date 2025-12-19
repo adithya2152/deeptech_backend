@@ -8,7 +8,7 @@ const jwtExpiry = process.env.JWT_EXPIRY || "24h";
 const refreshTokenExpiry = process.env.REFRESH_TOKEN_EXPIRY || "7d";
 
 // Utility to generate tokens
-const generateTokens = (userId, email, role = "user") => {
+const generateTokens = (userId, email, role = "buyer") => {
   const accessToken = jwt.sign(
     {
       id: userId,
@@ -36,7 +36,7 @@ const generateTokens = (userId, email, role = "user") => {
 // Sign up a new user with email and password
 export const signup = async (req, res) => {
   try {
-    const { email, password, firstName, lastName, role = "user" } = req.body;
+    const { email, password, firstName, lastName, role = "buyer" } = req.body;
 
     // Validate input
     if (!email || !password) {

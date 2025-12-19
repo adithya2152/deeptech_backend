@@ -29,7 +29,7 @@ const validateSignup = [
   body("lastName").optional().trim().escape(),
   body("role")
     .optional()
-    .isIn(["user", "expert", "admin"])
+    .isIn(["buyer", "expert", "admin"])
     .withMessage("Invalid role"),
 ];
 
@@ -61,7 +61,7 @@ router.get("/test", (req, res) => {
 });
 
 // Authentication endpoints
-router.post("/signup", validateSignup, handleValidationErrors, signup);
+router.post("/register", validateSignup, handleValidationErrors, signup);
 
 router.post("/login", validateLogin, handleValidationErrors, login);
 

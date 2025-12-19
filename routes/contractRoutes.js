@@ -1,12 +1,9 @@
-const express = require('express');
-const router = express.Router();
-const contractController = require('../controllers/contractController');
-const workLogController = require('../controllers/workLogController');
+import express from 'express';
+import contractController from '../controllers/contractController.js';
+import workLogController from '../controllers/workLogController.js';
+import { auth } from '../middleware/auth.js';
 
-const mockAuth = (req, res, next) => {
-  req.user = { id: '03a071f4-c01c-4e33-bc09-b06cae53909b' };
-  next();
-};
+const router = express.Router();
 
 /**
  * @swagger
@@ -72,7 +69,7 @@ const mockAuth = (req, res, next) => {
  *       201:
  *         description: Contract created
  */
-router.post('/', mockAuth, contractController.createContract);
+router.post('/', auth, contractController.createContract);
 
 /**
  * @swagger
@@ -85,7 +82,7 @@ router.post('/', mockAuth, contractController.createContract);
  *       200:
  *         description: List of contracts
  */
-router.get('/', mockAuth, contractController.getMyContracts);
+router.get('/', auth, contractController.getMyContracts);
 
 /**
  * @swagger
@@ -105,7 +102,7 @@ router.get('/', mockAuth, contractController.getMyContracts);
  *       200:
  *         description: Contract details
  */
-router.get('/:id', mockAuth, contractController.getContractDetails);
+router.get('/:id', auth, contractController.getContractDetails);
 
 /**
  * @swagger
@@ -125,7 +122,7 @@ router.get('/:id', mockAuth, contractController.getContractDetails);
  *       200:
  *         description: Contract activated
  */
-router.patch('/:id/accept', mockAuth, contractController.acceptContract);
+router.patch('/:id/accept', auth, contractController.acceptContract);
 
 /**
  * @swagger
@@ -153,7 +150,7 @@ router.patch('/:id/accept', mockAuth, contractController.acceptContract);
  *       200:
  *         description: Contract declined
  */
-router.patch('/:id/decline', mockAuth, contractController.declineContract);
+router.patch('/:id/decline', auth, contractController.declineContract);
 
 /**
  * @swagger
@@ -181,7 +178,7 @@ router.patch('/:id/decline', mockAuth, contractController.declineContract);
  *       200:
  *         description: Contract paused
  */
-router.patch('/:id/pause', mockAuth, contractController.pauseContract);
+router.patch('/:id/pause', auth, contractController.pauseContract);
 
 /**
  * @swagger
@@ -201,7 +198,7 @@ router.patch('/:id/pause', mockAuth, contractController.pauseContract);
  *       200:
  *         description: Contract resumed
  */
-router.patch('/:id/resume', mockAuth, contractController.resumeContract);
+router.patch('/:id/resume', auth, contractController.resumeContract);
 
 /* ============================
    2. HOUR LOGGING
@@ -252,7 +249,7 @@ router.patch('/:id/resume', mockAuth, contractController.resumeContract);
  *       201:
  *         description: Hours logged
  */
-router.post('/:id/hours', mockAuth, workLogController.logHours);
+router.post('/:id/hours', auth, workLogController.logHours);
 
 /**
  * @swagger
@@ -272,7 +269,7 @@ router.post('/:id/hours', mockAuth, workLogController.logHours);
  *       200:
  *         description: List of logs
  */
-router.get('/:id/hours', mockAuth, workLogController.getHourLogs);
+router.get('/:id/hours', auth, workLogController.getHourLogs);
 
 /* ============================
    3. REVIEW & ANALYTICS
@@ -310,7 +307,7 @@ router.get('/:id/hours', mockAuth, workLogController.getHourLogs);
  *       200:
  *         description: Hours approved
  */
-router.patch('/:id/hours/:logId/approve', mockAuth, workLogController.approveHourLog);
+router.patch('/:id/hours/:logId/approve', auth, workLogController.approveHourLog);
 
 /**
  * @swagger
@@ -344,7 +341,7 @@ router.patch('/:id/hours/:logId/approve', mockAuth, workLogController.approveHou
  *       200:
  *         description: Hours rejected
  */
-router.patch('/:id/hours/:logId/reject', mockAuth, workLogController.rejectHourLog);
+router.patch('/:id/hours/:logId/reject', auth, workLogController.rejectHourLog);
 
 /**
  * @swagger
@@ -370,6 +367,6 @@ router.patch('/:id/hours/:logId/reject', mockAuth, workLogController.rejectHourL
  *       200:
  *         description: Weekly summary
  */
-router.get('/:id/hours/weekly', mockAuth, workLogController.getWeeklySummary);
+router.get('/:id/hours/weekly', auth, workLogController.getWeeklySummary);
 
-module.exports = router;
+export default router;

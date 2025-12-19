@@ -1,6 +1,6 @@
-const expertModel = require('../models/expertModel');
+import expertModel from '../models/expertModel.js';
 
-exports.searchExperts = async (req, res) => {
+export const searchExperts = async (req, res) => {
   try {
     const { domain, query, rateMin, rateMax, onlyVerified } = req.query;
     
@@ -13,23 +13,28 @@ exports.searchExperts = async (req, res) => {
     };
 
     const experts = await expertModel.searchExperts(filters);
-    res.status(200).json({ experts });
+    res.status(200).json({ data: experts });
   } catch (error) {
     console.error("SEARCH ERROR:", error); 
     res.status(500).json({ error: 'Server error' });
   }
 };
 
-exports.getExpertById = async (req, res) => {
+export const getExpertById = async (req, res) => {
   try {
     const { id } = req.params;
     const expert = await expertModel.getExpertById(id);
 
     if (!expert) return res.status(404).json({ error: 'Expert not found' });
 
-    res.status(200).json(expert);
+    res.status(200).json({ data: expert });
   } catch (error) {
     console.error("GET ID ERROR:", error);
     res.status(500).json({ error: 'Server error' });
   }
+};
+
+export default {
+  searchExperts,
+  getExpertById
 };

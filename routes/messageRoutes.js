@@ -1,12 +1,9 @@
-const express = require('express');
-const router = express.Router();
-const messageController = require('../controllers/messageController');
+import express from 'express';
+import messageController from '../controllers/messageController.js';
+import { auth } from '../middleware/auth.js';
 
-// --- TEMPORARY MOCK AUTH MIDDLEWARE ---
-const mockAuth = (req, res, next) => {
-  req.user = { id: '03a071f4-c01c-4e33-bc09-b06cae53909b' };
-  next();
-};
+const router = express.Router();
+
 
 /**
  * @swagger
@@ -26,7 +23,7 @@ const mockAuth = (req, res, next) => {
  *       200:
  *         description: List of conversations
  */
-router.get('/', mockAuth, messageController.getConversations);
+router.get('/', auth, messageController.getConversations);
 
 /**
  * @swagger
@@ -45,7 +42,7 @@ router.get('/', mockAuth, messageController.getConversations);
  *       200:
  *         description: List of messages
  */
-router.get('/:id/messages', mockAuth, messageController.getMessages);
+router.get('/:id/messages', auth, messageController.getMessages);
 
 /**
  * @swagger
@@ -73,7 +70,7 @@ router.get('/:id/messages', mockAuth, messageController.getMessages);
  *       201:
  *         description: Message sent
  */
-router.post('/:id/messages', mockAuth, messageController.sendMessage);
+router.post('/:id/messages', auth, messageController.sendMessage);
 
 /**
  * @swagger
@@ -92,6 +89,6 @@ router.post('/:id/messages', mockAuth, messageController.sendMessage);
  *       200:
  *         description: Conversation marked as read
  */
-router.patch('/:id/read', mockAuth, messageController.markAsRead);
+router.patch('/:id/read', auth, messageController.markAsRead);
 
-module.exports = router;
+export default router;

@@ -1,6 +1,7 @@
-const express = require('express');
+import express from 'express';
+import expertController from '../controllers/expertController.js';
+
 const router = express.Router();
-const expertController = require('../controllers/expertController');
 
 /**
  * @swagger
@@ -70,4 +71,4 @@ router.get('/', expertController.searchExperts);
  */
 router.get('/:id', expertController.getExpertById);
 
-module.exports = router;
+export default router;

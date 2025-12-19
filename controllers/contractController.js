@@ -1,7 +1,7 @@
-const Contract = require('../models/contractModel');
-const WorkLog = require('../models/workLogModel');
+import Contract from '../models/contractModel.js';
+import WorkLog from '../models/workLogModel.js';
 
-exports.createContract = async (req, res) => {
+export const createContract = async (req, res) => {
   try {
     const mappedData = {
       project_id: req.body.projectId,
@@ -21,7 +21,7 @@ exports.createContract = async (req, res) => {
   }
 };
 
-exports.getContractDetails = async (req, res) => {
+export const getContractDetails = async (req, res) => {
   try {
     const contract = await Contract.getContractById(req.params.id);
     if (!contract) return res.status(404).json({ error: "Contract not found" });
@@ -31,7 +31,7 @@ exports.getContractDetails = async (req, res) => {
   }
 };
 
-exports.getMyContracts = async (req, res) => {
+export const getMyContracts = async (req, res) => {
   try {
     const role = req.query.role || 'buyer';
     const contracts = await Contract.getContractsByUser(req.user.id, role);
@@ -41,7 +41,7 @@ exports.getMyContracts = async (req, res) => {
   }
 };
 
-exports.acceptContract = async (req, res) => {
+export const acceptContract = async (req, res) => {
   try {
     const updatedContract = await Contract.updateContractStatus(req.params.id, 'active');
     res.status(200).json(updatedContract);
@@ -50,7 +50,7 @@ exports.acceptContract = async (req, res) => {
   }
 };
 
-exports.declineContract = async (req, res) => {
+export const declineContract = async (req, res) => {
   try {
     const updated = await Contract.updateContractStatus(req.params.id, 'declined', req.body.reason);
     res.status(200).json(updated);
@@ -59,7 +59,7 @@ exports.declineContract = async (req, res) => {
   }
 };
 
-exports.pauseContract = async (req, res) => {
+export const pauseContract = async (req, res) => {
   try {
     const updated = await Contract.updateContractStatus(req.params.id, 'paused', req.body.reason);
     res.status(200).json(updated);
@@ -68,11 +68,21 @@ exports.pauseContract = async (req, res) => {
   }
 };
 
-exports.resumeContract = async (req, res) => {
+export const resumeContract = async (req, res) => {
   try {
     const updated = await Contract.updateContractStatus(req.params.id, 'active');
     res.status(200).json(updated);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
+};
+
+export default {
+  createContract,
+  getContractDetails,
+  getMyContracts,
+  acceptContract,
+  declineContract,
+  pauseContract,
+  resumeContract
 };

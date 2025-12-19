@@ -1,4 +1,4 @@
-const pool = require('../config/db');
+import pool from '../config/db.js';
 
 const Expert = {
   searchExperts: async (filters) => {
@@ -93,4 +93,4 @@ const Expert = {
   }
 };
 
-module.exports = Expert;
+export default Expert;

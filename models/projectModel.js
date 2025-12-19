@@ -1,4 +1,4 @@
-const pool = require('../config/db');
+import pool from '../config/db.js';
 
 const Project = {
   getProjectsByClient: async (clientId) => {
@@ -69,4 +69,4 @@ const Project = {
   }
 };
 
-module.exports = Project;
+export default Project;
