@@ -1,17 +1,76 @@
-import express from 'express';
+import express from "express";
+import { body, validationResult } from "express-validator";
+import { auth, optionalAuth } from "../middleware/auth.js";
+import {
+  signup,
+  login,
+  logout,
+  refreshAccessToken,
+  getCurrentUser,
+  verifyEmail,
+} from "../controllers/authController.js";
 
 const router = express.Router();
-import {body , validationResult} from 'express-validator';
-import auth from '../middleware/auth.js';
+
+// Validation middleware
+const validateEmail = body("email")
+  .isEmail()
+  .normalizeEmail()
+  .withMessage("Valid email is required");
+
+const validatePassword = body("password")
+  .isLength({ min: 6 })
+  .withMessage("Password must be at least 6 characters long");
+
+const validateSignup = [
+  validateEmail,
+  validatePassword,
+  body("firstName").optional().trim().escape(),
+  body("lastName").optional().trim().escape(),
+  body("role")
+    .optional()
+    .isIn(["user", "expert", "admin"])
+    .withMessage("Invalid role"),
+];
+
+const validateLogin = [
+  validateEmail,
+  body("password").notEmpty().withMessage("Password is required"),
+];
+
+// Error handling middleware for validation
+const handleValidationErrors = (req, res, next) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({
+      success: false,
+      message: "Validation error",
+      errors: errors.array(),
+    });
+  }
+  next();
+};
 
 // Test endpoint
-router.get('/test', (req, res) => {
-    res.json({
-        success: true,
-        message: 'Auth routes are working!',
-        timestamp: new Date().toISOString()
-    });
+router.get("/test", (req, res) => {
+  res.json({
+    success: true,
+    message: "Auth routes are working!",
+    timestamp: new Date().toISOString(),
+  });
 });
 
+// Authentication endpoints
+router.post("/signup", validateSignup, handleValidationErrors, signup);
 
-router.post('/register',)
+router.post("/login", validateLogin, handleValidationErrors, login);
+
+router.post("/refresh-token", refreshAccessToken);
+
+router.post("/logout", auth, logout);
+
+router.get("/me", auth, getCurrentUser);
+
+router.post("/verify-email", verifyEmail);
+
+export default router;
