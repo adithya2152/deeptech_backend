@@ -4,21 +4,17 @@ import dotenv from "dotenv";
 dotenv.config();
 
 const supabaseUrl = process.env.SUPABASE_URL;
-const supabaseKey = process.env.SUPABASE_ANON_KEY;
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY;
+const serviceKey = process.env.SUPABASE_SERVICE_KEY;
 
-if (!supabaseUrl || !supabaseKey) {
-  throw new Error(
-    "SUPABASE_URL and SUPABASE_ANON_KEY are required in environment variables"
-  );
+if (!supabaseUrl || !serviceKey) {
+  throw new Error("SUPABASE_URL and SUPABASE_SERVICE_KEY are required");
 }
 
-// Client for user-facing operations
-const supabase = createClient(supabaseUrl, supabaseKey);
+const supabase = createClient(supabaseUrl, serviceKey, {
+  auth: {
+    autoRefreshToken: false,
+    persistSession: false,
+  },
+});
 
-// Admin client for server-side operations (if needed)
-const supabaseAdmin = supabaseServiceKey
-  ? createClient(supabaseUrl, supabaseServiceKey)
-  : null;
-
-export { supabase, supabaseAdmin };
+export { supabase };
