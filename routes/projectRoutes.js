@@ -11,6 +11,13 @@ const router = express.Router();
  *     summary: Get all projects for current user
  *     tags:
  *       - Projects
+ *     parameters:
+ *       - in: query
+ *         name: status
+ *         schema:
+ *           type: string
+ *           enum: [draft, active, completed, archived]
+ *         description: Filter projects by status
  *     responses:
  *       200:
  *         description: List of projects

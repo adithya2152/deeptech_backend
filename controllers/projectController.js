@@ -2,8 +2,10 @@ import projectModel from '../models/projectModel.js';
 
 export const getMyProjects = async (req, res) => {
   try {
-    const userId = req.user.id; 
-    const projects = await projectModel.getProjectsByClient(userId);
+    const userId = req.user.id;
+    const status = req.query.status;
+    const projects = await projectModel.getProjectsByClient(userId, status);
+    
     res.status(200).json({ data: projects }); 
   } catch (error) {
     console.error("GET PROJECTS ERROR:", error);
@@ -79,7 +81,6 @@ export const deleteProject = async (req, res) => {
   }
 };
 
-// Add this at the bottom to fix the "default export" error
 export default {
   getMyProjects,
   getProjectById,

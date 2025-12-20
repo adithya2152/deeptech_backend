@@ -1,11 +1,18 @@
 import pool from '../config/db.js';
 
 const Project = {
-  getProjectsByClient: async (clientId) => {
-    const sql = `
-      SELECT * FROM projects WHERE client_id = $1 ORDER BY created_at DESC
-    `;
-    const { rows } = await pool.query(sql, [clientId]);
+  getProjectsByClient: async (clientId, status = null) => {
+    let sql = `SELECT * FROM projects WHERE client_id = $1`;
+    const params = [clientId];
+
+    if (status) {
+      sql += ` AND status = $2`;
+      params.push(status);
+    }
+
+    sql += ` ORDER BY created_at DESC`;
+
+    const { rows } = await pool.query(sql, params);
     return rows;
   },
 
