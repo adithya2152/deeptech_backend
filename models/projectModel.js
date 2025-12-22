@@ -38,10 +38,10 @@ const Project = {
     const sql = `
       INSERT INTO projects (
         client_id, title, description, domain, trl_level, 
-        expected_outcome, risk_categories, budget_min, budget_max, deadline, status
+        expected_outcome, risk_categories, budget_min, budget_max, deadline
       )
       VALUES (
-        $1, $2, $3, $4, $5, $6, $7::text[], $8, $9, $10, 'open'
+        $1, $2, $3, $4, $5, $6, $7::text[], $8, $9, $10
       )
       RETURNING *;
     `;
