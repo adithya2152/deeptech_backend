@@ -9,8 +9,7 @@ const router = express.Router();
  * /api/projects:
  *   get:
  *     summary: Get all projects for current user
- *     tags:
- *       - Projects
+ *     tags: [Projects]
  *     parameters:
  *       - in: query
  *         name: status
@@ -26,11 +25,22 @@ router.get('/', auth, projectController.getMyProjects);
 
 /**
  * @swagger
+ * /api/projects/marketplace:
+ *   get:
+ *     summary: Get all active projects for experts
+ *     tags: [Projects]
+ *     responses:
+ *       200:
+ *         description: List of active projects
+ */
+router.get('/marketplace', auth, projectController.getMarketplaceProjects);
+
+/**
+ * @swagger
  * /api/projects/{id}:
  *   get:
  *     summary: Get single project details
- *     tags:
- *       - Projects
+ *     tags: [Projects]
  *     parameters:
  *       - in: path
  *         name: id
@@ -50,8 +60,7 @@ router.get('/:id', auth, projectController.getProjectById);
  * /api/projects:
  *   post:
  *     summary: Create a new project
- *     tags:
- *       - Projects
+ *     tags: [Projects]
  *     requestBody:
  *       required: true
  *       content:
@@ -60,7 +69,6 @@ router.get('/:id', auth, projectController.getProjectById);
  *             type: object
  *             required:
  *               - title
- *               - clientId
  *             properties:
  *               title:
  *                 type: string
@@ -71,8 +79,6 @@ router.get('/:id', auth, projectController.getProjectById);
  *               trlLevel:
  *                 type: string
  *               expectedOutcome:
- *                 type: string
- *               clientId:
  *                 type: string
  *               riskCategories:
  *                 type: array
@@ -88,46 +94,24 @@ router.get('/:id', auth, projectController.getProjectById);
  *     responses:
  *       201:
  *         description: Project created successfully
- *       500:
- *         description: Server error
  */
-router.post('/', auth ,projectController.createProject);
+router.post('/', auth, projectController.createProject);
 
 /**
  * @swagger
  * /api/projects/{id}:
  *   put:
  *     summary: Update a project
- *     tags:
- *       - Projects
+ *     tags: [Projects]
  *     parameters:
  *       - in: path
  *         name: id
  *         required: true
  *         schema:
  *           type: string
- *         description: The project ID
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             properties:
- *               title:
- *                 type: string
- *               description:
- *                 type: string
- *               status:
- *                 type: string
- *                 example: closed
  *     responses:
  *       200:
  *         description: Project updated
- *       404:
- *         description: Project not found
- *       500:
- *         description: Server error
  */
 router.put('/:id', auth, projectController.updateProject);
 
@@ -136,36 +120,16 @@ router.put('/:id', auth, projectController.updateProject);
  * /api/projects/{id}:
  *   patch:
  *     summary: Update a project (partial update)
- *     tags:
- *       - Projects
+ *     tags: [Projects]
  *     parameters:
  *       - in: path
  *         name: id
  *         required: true
  *         schema:
  *           type: string
- *         description: The project ID
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             properties:
- *               title:
- *                 type: string
- *               description:
- *                 type: string
- *               status:
- *                 type: string
- *                 example: closed
  *     responses:
  *       200:
  *         description: Project updated
- *       404:
- *         description: Project not found
- *       500:
- *         description: Server error
  */
 router.patch('/:id', auth, projectController.updateProject);
 
@@ -174,23 +138,68 @@ router.patch('/:id', auth, projectController.updateProject);
  * /api/projects/{id}:
  *   delete:
  *     summary: Delete a project
- *     tags:
- *       - Projects
+ *     tags: [Projects]
  *     parameters:
  *       - in: path
  *         name: id
  *         required: true
  *         schema:
  *           type: string
- *         description: The project ID
  *     responses:
  *       200:
  *         description: Project deleted
- *       404:
- *         description: Project not found
- *       500:
- *         description: Server error
  */
 router.delete('/:id', auth, projectController.deleteProject);
+
+/* ---------- PROPOSALS ---------- */
+
+/**
+ * @swagger
+ * /api/projects/{id}/proposals:
+ *   get:
+ *     summary: Get all proposals for a project (Owner only)
+ *     tags: [Projects]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: List of proposals
+ */
+router.get('/:id/proposals', auth, projectController.getProjectProposals);
+
+/**
+ * @swagger
+ * /api/projects/{id}/proposals:
+ *   post:
+ *     summary: Submit a proposal (Expert only)
+ *     tags: [Projects]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               amount:
+ *                 type: number
+ *               duration:
+ *                 type: number
+ *               cover_letter:
+ *                 type: string
+ *     responses:
+ *       201:
+ *         description: Proposal submitted
+ */
+router.post('/:id/proposals', auth, projectController.submitProposal);
 
 export default router;

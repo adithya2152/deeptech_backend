@@ -7,8 +7,11 @@ const Expert = {
     let sql = `
       SELECT 
         p.id, 
+        p.first_name,
+        p.last_name,
         p.first_name || ' ' || p.last_name as name,
         p.email,
+        e.experience_summary,
         e.experience_summary as "bio",
         e.experience_summary as "experienceSummary",
         e.domains,
@@ -66,26 +69,30 @@ const Expert = {
     const query = `
       SELECT 
         p.id, 
+        p.first_name, 
+        p.last_name, 
         p.first_name || ' ' || p.last_name as name,
         p.email,
+        p.role,
+        e.experience_summary, -- Added explicitly to match schema
         e.experience_summary as "bio",
         e.experience_summary as "experienceSummary",
-        e.domains,
+        COALESCE(e.domains, '{}') as domains,
         json_build_object(
-          'advisory', e.hourly_rate_advisory,
-          'architectureReview', e.hourly_rate_architecture,
-          'handsOnExecution', e.hourly_rate_execution
+          'advisory', COALESCE(e.hourly_rate_advisory, 0),
+          'architectureReview', COALESCE(e.hourly_rate_architecture, 0),
+          'handsOnExecution', COALESCE(e.hourly_rate_execution, 0)
         ) as "hourlyRates",
-        e.vetting_status as "vettingStatus",
+        COALESCE(e.vetting_status, 'pending') as "vettingStatus",
         e.vetting_level as "vettingLevel",
-        e.rating,
-        e.review_count as "reviewCount",
+        COALESCE(e.rating, 0) as rating,
+        COALESCE(e.review_count, 0) as "reviewCount",
         e.availability,
-        e.patents,
-        e.papers,
-        e.products
+        COALESCE(e.patents, '{}') as patents,
+        COALESCE(e.papers, '{}') as papers,
+        COALESCE(e.products, '{}') as products
       FROM profiles p
-      JOIN experts e ON p.id = e.id
+      LEFT JOIN experts e ON p.id = e.id
       WHERE p.id = $1
     `;
     const { rows } = await pool.query(query, [id]);

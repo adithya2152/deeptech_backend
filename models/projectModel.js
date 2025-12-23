@@ -1,11 +1,27 @@
 import pool from '../config/db.js';
 
 const Project = {
-  getProjectsByClient: async (clientId, status = null) => {
-    let sql = `SELECT * FROM projects WHERE client_id = $1`;
-    const params = [clientId];
+  getMarketplaceProjects: async () => {
+    const query = `
+      SELECT p.*, 
+             u.first_name as buyer_name, 
+             u.last_name as buyer_last_name,
+             (SELECT COUNT(*) FROM proposals WHERE project_id = p.id) as proposal_count
+      FROM projects p
+      JOIN profiles u ON p.buyer_id = u.id
+      WHERE p.status IN ('open', 'active')
+      ORDER BY p.created_at DESC;
+    `;
+    const { rows } = await pool.query(query);
+    return rows;
+  },
 
-    if (status) {
+  getProjectsByClient: async (userId, role, status = null) => {
+    const column = role === 'buyer' ? 'buyer_id' : 'expert_id';
+    let sql = `SELECT * FROM projects WHERE ${column} = $1`;
+    const params = [userId];
+
+    if (status && status !== 'all') {
       sql += ` AND status = $2`;
       params.push(status);
     }
@@ -20,39 +36,92 @@ const Project = {
     const sql = `
       SELECT 
         p.*, 
-        json_build_object('id', u.id, 'name', u.first_name || ' ' || u.last_name, 'email', u.email) as client
+        json_build_object(
+          'id', u.id, 
+          'first_name', u.first_name, 
+          'last_name', u.last_name, 
+          'email', u.email
+        ) as buyer
       FROM projects p
-      JOIN profiles u ON p.client_id = u.id
-      WHERE p.id = $1
+      LEFT JOIN profiles u ON p.buyer_id = u.id 
+      WHERE p.id = $1;
     `;
     const { rows } = await pool.query(sql, [id]);
     return rows[0];
   },
 
   create: async (data) => {
-    const { 
-      client_id, title, description, domain, trl_level, 
-      expected_outcome, risk_categories, budget_min, budget_max, deadline 
+    const {
+      buyer_id, title, description, domain, trl_level,
+      expected_outcome, risk_categories, budget_min, budget_max, deadline,
+      status
     } = data;
 
     const sql = `
       INSERT INTO projects (
-        client_id, title, description, domain, trl_level, 
-        expected_outcome, risk_categories, budget_min, budget_max, deadline
+        buyer_id, title, description, domain, trl_level, 
+        expected_outcome, risk_categories, budget_min, budget_max, deadline,
+        status
       )
       VALUES (
-        $1, $2, $3, $4, $5, $6, $7::text[], $8, $9, $10
+        $1, $2, $3, $4, $5, $6, $7::text[], $8, $9, $10, 
+        COALESCE($11, 'draft') -- Defaults to 'draft' if status is null/undefined
       )
       RETURNING *;
     `;
-    
+
     const params = [
-      client_id, title, description, domain, trl_level, 
-      expected_outcome, risk_categories || [], budget_min, budget_max, deadline
+      buyer_id, title, description, domain, trl_level,
+      expected_outcome, risk_categories || [], budget_min, budget_max, deadline,
+      status
     ];
 
     const { rows } = await pool.query(sql, params);
     return rows[0];
+  },
+
+  createProposal: async (projectId, expertId, data) => {
+    const { amount, duration, cover_letter } = data;
+
+    const sql = `
+      INSERT INTO proposals (
+        project_id, 
+        expert_id,
+        quote_amount,
+        duration_days,
+        message,
+        status
+      )
+      VALUES ($1, $2, $3, $4, $5, 'pending')
+      RETURNING *;
+    `;
+
+    const { rows } = await pool.query(sql, [
+      projectId,
+      expertId,
+      amount,
+      duration,
+      cover_letter
+    ]);
+
+    return rows[0];
+  },
+
+  getProjectProposals: async (projectId) => {
+    const sql = `
+      SELECT 
+        pr.*,
+        p.first_name || ' ' || p.last_name as expert_name,
+        p.email as expert_email,
+        p.avatar_url as expert_avatar
+      FROM proposals pr
+      JOIN profiles p ON pr.expert_id = p.id
+      WHERE pr.project_id = $1
+      AND pr.status = 'pending'
+      ORDER BY pr.created_at DESC;
+    `;
+    const { rows } = await pool.query(sql, [projectId]);
+    return rows;
   },
 
   update: async (id, updates) => {
@@ -61,11 +130,35 @@ const Project = {
       SET title = COALESCE($2, title),
           description = COALESCE($3, description),
           status = COALESCE($4, status),
+          trl_level = COALESCE($5, trl_level),
+          expected_outcome = COALESCE($6, expected_outcome),
+          budget_min = COALESCE($7, budget_min),
+          budget_max = COALESCE($8, budget_max),
+          deadline = COALESCE($9, deadline),
+          risk_categories = COALESCE($10, risk_categories)::text[],
+          domain = COALESCE($11, domain),
+          expert_id = COALESCE($12, expert_id),
           updated_at = NOW()
       WHERE id = $1
       RETURNING *;
     `;
-    const { rows } = await pool.query(sql, [id, updates.title, updates.description, updates.status]);
+
+    const params = [
+      id,
+      updates.title,
+      updates.description,
+      updates.status,
+      updates.trl_level,
+      updates.expected_outcome,
+      updates.budget_min,
+      updates.budget_max,
+      updates.deadline,
+      updates.risk_categories,
+      updates.domain,
+      updates.expert_id
+    ];
+
+    const { rows } = await pool.query(sql, params);
     return rows[0];
   },
 

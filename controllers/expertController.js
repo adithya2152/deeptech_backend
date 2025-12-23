@@ -25,7 +25,9 @@ export const getExpertById = async (req, res) => {
     const { id } = req.params;
     const expert = await expertModel.getExpertById(id);
 
-    if (!expert) return res.status(404).json({ error: 'Expert not found' });
+    if (!expert) {
+      return res.status(404).json({ error: 'Expert not found' });
+    }
 
     res.status(200).json({ data: expert });
   } catch (error) {

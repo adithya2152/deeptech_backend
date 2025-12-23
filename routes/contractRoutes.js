@@ -8,63 +8,33 @@ const router = express.Router();
 /**
  * @swagger
  * tags:
- *   - name: Contract Lifecycle
- *     description: Hiring, status management (Accept/Decline/Pause), and general details
- *   - name: Hour Logging
- *     description: Expert-facing endpoints for tracking work and value tags
- *   - name: Contract Review & Analytics
- *     description: Buyer-facing approvals and weekly progress tracking
+ *   - name: Contracts
+ *     description: Contract lifecycle management
+ *   - name: Work Logs
+ *     description: Hour logging and reviews
  */
 
 /* ============================
-   1. CONTRACT LIFECYCLE
+   CONTRACT LIFECYCLE
    ============================ */
 
 /**
  * @swagger
  * /api/contracts:
  *   post:
- *     summary: Create a new contract (Buyer invites Expert)
- *     tags:
- *       - Contract Lifecycle
+ *     summary: Create a new contract
+ *     tags: [Contracts]
  *     requestBody:
  *       required: true
  *       content:
  *         application/json:
  *           schema:
  *             type: object
- *             properties:
- *               projectId:
- *                 type: string
- *                 format: uuid
- *               expertId:
- *                 type: string
- *                 format: uuid
- *               engagementType:
- *                 type: string
- *                 enum:
- *                   - hourly
- *                   - fixed
- *               hourlyRate:
- *                 type: number
- *               weeklyHourCap:
- *                 type: number
- *               startDate:
- *                 type: string
- *                 format: date
- *               endDate:
- *                 type: string
- *                 format: date
- *               ipOwnership:
- *                 type: string
- *                 enum:
- *                   - client
- *                   - shared
- *                   - expert
- *               ndaSigned:
- *                 type: boolean
- *               escrowAmount:
- *                 type: number
+ *             required:
+ *               - project_id
+ *               - expert_id
+ *               - hourly_rate
+ *               - engagement_type
  *     responses:
  *       201:
  *         description: Contract created
@@ -75,9 +45,8 @@ router.post('/', auth, contractController.createContract);
  * @swagger
  * /api/contracts:
  *   get:
- *     summary: Get all contracts for the current user
- *     tags:
- *       - Contract Lifecycle
+ *     summary: Get all contracts for current user
+ *     tags: [Contracts]
  *     responses:
  *       200:
  *         description: List of contracts
@@ -88,39 +57,30 @@ router.get('/', auth, contractController.getMyContracts);
  * @swagger
  * /api/contracts/{id}:
  *   get:
- *     summary: Get specific contract details
- *     tags:
- *       - Contract Lifecycle
+ *     summary: Get contract details
+ *     tags: [Contracts]
  *     parameters:
  *       - in: path
  *         name: id
  *         required: true
  *         schema:
  *           type: string
- *           format: uuid
  *     responses:
  *       200:
  *         description: Contract details
  */
 router.get('/:id', auth, contractController.getContractDetails);
 
+/* ============================
+   CONTRACT ACTIONS
+   ============================ */
+
 /**
  * @swagger
  * /api/contracts/{id}/accept:
  *   patch:
- *     summary: Expert accepts the contract
- *     tags:
- *       - Contract Lifecycle
- *     parameters:
- *       - in: path
- *         name: id
- *         required: true
- *         schema:
- *           type: string
- *           format: uuid
- *     responses:
- *       200:
- *         description: Contract activated
+ *     summary: Accept a contract (Expert)
+ *     tags: [Contracts]
  */
 router.patch('/:id/accept', auth, contractController.acceptContract);
 
@@ -128,184 +88,77 @@ router.patch('/:id/accept', auth, contractController.acceptContract);
  * @swagger
  * /api/contracts/{id}/decline:
  *   patch:
- *     summary: Expert declines the contract
- *     tags:
- *       - Contract Lifecycle
- *     parameters:
- *       - in: path
- *         name: id
- *         required: true
- *         schema:
- *           type: string
- *           format: uuid
- *     requestBody:
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             properties:
- *               reason:
- *                 type: string
- *     responses:
- *       200:
- *         description: Contract declined
+ *     summary: Decline a contract (Expert)
+ *     tags: [Contracts]
  */
 router.patch('/:id/decline', auth, contractController.declineContract);
 
 /**
  * @swagger
- * /api/contracts/{id}/pause:
+ * /api/contracts/{id}/terminate:
  *   patch:
- *     summary: Pause an active contract
- *     tags:
- *       - Contract Lifecycle
+ *     summary: Terminate a contract
+ *     tags: [Contracts]
  *     parameters:
  *       - in: path
  *         name: id
  *         required: true
  *         schema:
  *           type: string
- *           format: uuid
- *     requestBody:
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             properties:
- *               reason:
- *                 type: string
  *     responses:
  *       200:
- *         description: Contract paused
+ *         description: Contract terminated
  */
-router.patch('/:id/pause', auth, contractController.pauseContract);
+router.patch('/:id/terminate', auth, contractController.terminateContract);
+
+/* ============================
+   WORK LOGS
+   ============================ */
 
 /**
  * @swagger
- * /api/contracts/{id}/resume:
- *   patch:
- *     summary: Resume a paused contract
- *     tags:
- *       - Contract Lifecycle
+ * /api/contracts/{id}/hour-logs:
+ *   get:
+ *     summary: Get all hour logs for a contract
+ *     tags: [Work Logs]
  *     parameters:
  *       - in: path
  *         name: id
  *         required: true
  *         schema:
  *           type: string
- *           format: uuid
  *     responses:
  *       200:
- *         description: Contract resumed
+ *         description: List of hour logs
  */
-router.patch('/:id/resume', auth, contractController.resumeContract);
-
-/* ============================
-   2. HOUR LOGGING
-   ============================ */
+router.get('/:id/hour-logs', auth, workLogController.getHourLogs);
 
 /**
  * @swagger
  * /api/contracts/{id}/hours:
  *   post:
- *     summary: Expert logs hours with value tags
- *     tags:
- *       - Hour Logging
- *     parameters:
- *       - in: path
- *         name: id
- *         required: true
- *         schema:
- *           type: string
- *           format: uuid
+ *     summary: Expert logs hours
+ *     tags: [Work Logs]
  *     requestBody:
  *       required: true
  *       content:
  *         application/json:
  *           schema:
  *             type: object
- *             properties:
- *               date:
- *                 type: string
- *                 format: date
- *               hours:
- *                 type: number
- *               description:
- *                 type: string
- *               valueTags:
- *                 type: object
- *                 properties:
- *                   decisionMade:
- *                     type: string
- *                   riskAvoided:
- *                     type: string
- *                   pathClarified:
- *                     type: string
- *                   knowledgeTransferred:
- *                     type: string
- *                   problemSolved:
- *                     type: string
- *     responses:
- *       201:
- *         description: Hours logged
+ *             required:
+ *               - log_date
+ *               - hours_worked
+ *               - description
+ *               - value_tags
  */
 router.post('/:id/hours', auth, workLogController.logHours);
 
 /**
  * @swagger
- * /api/contracts/{id}/hours:
- *   get:
- *     summary: Get all hour logs for a contract
- *     tags:
- *       - Hour Logging
- *     parameters:
- *       - in: path
- *         name: id
- *         required: true
- *         schema:
- *           type: string
- *           format: uuid
- *     responses:
- *       200:
- *         description: List of logs
- */
-router.get('/:id/hours', auth, workLogController.getHourLogs);
-
-/* ============================
-   3. REVIEW & ANALYTICS
-   ============================ */
-
-/**
- * @swagger
  * /api/contracts/{id}/hours/{logId}/approve:
  *   patch:
- *     summary: Buyer approves an hour log
- *     tags:
- *       - Contract Review & Analytics
- *     parameters:
- *       - in: path
- *         name: id
- *         required: true
- *         schema:
- *           type: string
- *           format: uuid
- *       - in: path
- *         name: logId
- *         required: true
- *         schema:
- *           type: string
- *           format: uuid
- *     requestBody:
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             properties:
- *               comment:
- *                 type: string
- *     responses:
- *       200:
- *         description: Hours approved
+ *     summary: Approve an hour log (Buyer)
+ *     tags: [Work Logs]
  */
 router.patch('/:id/hours/:logId/approve', auth, workLogController.approveHourLog);
 
@@ -313,60 +166,22 @@ router.patch('/:id/hours/:logId/approve', auth, workLogController.approveHourLog
  * @swagger
  * /api/contracts/{id}/hours/{logId}/reject:
  *   patch:
- *     summary: Buyer rejects an hour log
- *     tags:
- *       - Contract Review & Analytics
- *     parameters:
- *       - in: path
- *         name: id
- *         required: true
- *         schema:
- *           type: string
- *           format: uuid
- *       - in: path
- *         name: logId
- *         required: true
- *         schema:
- *           type: string
- *           format: uuid
- *     requestBody:
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             properties:
- *               reason:
- *                 type: string
- *     responses:
- *       200:
- *         description: Hours rejected
+ *     summary: Reject an hour log (Buyer)
+ *     tags: [Work Logs]
  */
 router.patch('/:id/hours/:logId/reject', auth, workLogController.rejectHourLog);
 
+/* ============================
+   INVOICES
+   ============================ */
+
 /**
  * @swagger
- * /api/contracts/{id}/hours/weekly:
+ * /api/contracts/{id}/invoices:
  *   get:
- *     summary: Get weekly hour tracking summary
- *     tags:
- *       - Contract Review & Analytics
- *     parameters:
- *       - in: path
- *         name: id
- *         required: true
- *         schema:
- *           type: string
- *           format: uuid
- *       - in: query
- *         name: week
- *         required: true
- *         schema:
- *           type: string
- *           format: date
- *     responses:
- *       200:
- *         description: Weekly summary
+ *     summary: Get invoices for a contract
+ *     tags: [Contracts]
  */
-router.get('/:id/hours/weekly', auth, workLogController.getWeeklySummary);
+router.get('/:id/invoices', auth, contractController.getInvoices);
 
 export default router;

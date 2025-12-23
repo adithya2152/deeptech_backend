@@ -1,5 +1,28 @@
 import messageModel from '../models/messageModel.js';
 
+export const startConversation = async (req, res) => {
+  try {
+    const { participantId } = req.body;
+    const userId = req.user.id;
+
+    if (userId === participantId) {
+      return res.status(400).json({ error: 'Cannot start chat with yourself' });
+    }
+
+    let conversation = await messageModel.findExistingConversation(userId, participantId);
+    
+    if (!conversation) {
+      conversation = await messageModel.createConversation(userId, participantId);
+    }
+
+    // Wrap in data object to match frontend expectation
+    res.status(200).json({ conversation }); 
+  } catch (error) {
+    console.error("START CONVO ERROR:", error);
+    res.status(500).json({ error: 'Server error' });
+  }
+};
+
 export const getConversations = async (req, res) => {
   try {
     const userId = req.user.id; 
@@ -53,9 +76,31 @@ export const markAsRead = async (req, res) => {
   }
 };
 
+// ✅ NEW: Delete Conversation Logic
+export const deleteConversation = async (req, res) => {
+  try {
+    // Matches route: router.delete('/:id', ...)
+    const { id } = req.params; 
+    const userId = req.user.id;
+
+    const deletedConversation = await messageModel.deleteConversation(id, userId);
+
+    if (!deletedConversation) {
+      return res.status(404).json({ error: 'Conversation not found or access denied' });
+    }
+
+    res.status(200).json({ message: 'Conversation deleted successfully' });
+  } catch (error) {
+    console.error("DELETE CONVERSATION ERROR:", error);
+    res.status(500).json({ error: 'Server error' });
+  }
+};
+
 export default {
+  startConversation,
   getConversations,
   getMessages,
   sendMessage,
-  markAsRead
+  markAsRead,
+  deleteConversation
 };
