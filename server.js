@@ -3,16 +3,17 @@ import cors from "cors";
 import dotenv from "dotenv";
 import pool from "./config/db.js";
 import userAuthRoutes from "./routes/userAuthRoutes.js";
-import projectRoutes from "./routes/projectRoutes.js";
-import contractRoutes from "./routes/contractRoutes.js";
-import expertRoutes from "./routes/expertRoutes.js";
-import messageRoutes from "./routes/messageRoutes.js";
+import proposalsRoutes from "./routes/proposalsRoutes.js";
+import contractsRoutes from "./routes/contractsRoutes.js";
+import workLogsRoutes from "./routes/workLogsRoutes.js";
+import { initializeStorageBuckets } from "./utils/storage.js";
 
 dotenv.config();
 
 const app = express();
 const port = process.env.PORT || 3000;
 
+// Middleware setup
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
@@ -23,6 +24,7 @@ app.use(
   })
 );
 
+// Enhanced CORS handling
 app.use((req, res, next) => {
   const origin = req.headers.origin;
   if (origin) {
@@ -38,6 +40,7 @@ app.use((req, res, next) => {
     "Content-Type, Authorization, x-auth-token"
   );
 
+  // Handle preflight requests
   if (req.method === "OPTIONS") {
     res.sendStatus(200);
     return;
@@ -46,6 +49,7 @@ app.use((req, res, next) => {
   next();
 });
 
+// Health check endpoint for API testing
 app.get("/api/health", async (req, res) => {
   try {
     const result = await pool.query("SELECT NOW()");
@@ -60,6 +64,7 @@ app.get("/api/health", async (req, res) => {
   }
 });
 
+// Root endpoint
 app.get("/", async (req, res) => {
   try {
     const result = await pool.query("SELECT NOW()");
@@ -74,12 +79,19 @@ app.get("/", async (req, res) => {
   }
 });
 
+// Authentication routes
 app.use("/api/auth", userAuthRoutes);
-app.use("/api/projects", projectRoutes);
-app.use("/api/contracts", contractRoutes);
-app.use("/api/experts", expertRoutes);
-app.use("/api/conversations", messageRoutes);
 
+// Proposals routes
+app.use("/api/proposals", proposalsRoutes);
+
+// Contracts routes
+app.use("/api/contracts", contractsRoutes);
+
+// Work Logs routes
+app.use("/api/work-logs", workLogsRoutes);
+
+// 404 handler for undefined routes
 app.use((req, res) => {
   res.status(404).json({
     success: false,
@@ -88,6 +100,7 @@ app.use((req, res) => {
   });
 });
 
+// Global error handler
 app.use((err, req, res, next) => {
   console.error("Global error handler:", err);
   res.status(err.status || 500).json({
@@ -97,6 +110,7 @@ app.use((err, req, res, next) => {
   });
 });
 
+// Start server
 app.listen(port, () => {
   console.log(`Server is running on port ${port}`);
   console.log(`Environment: ${process.env.NODE_ENV || "development"}`);

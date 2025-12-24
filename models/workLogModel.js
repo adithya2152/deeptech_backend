@@ -1,106 +1,130 @@
-import pool from '../config/db.js';
+import pool from "../config/db.js";
 
 const WorkLog = {
-  createLog: async (contract_id, expert_id, log_data) => {
-    const { log_date, hours_worked, description, value_tags } = log_data;
+  // Create a new work log (matches Supabase schema)
+  create: async (data) => {
+    const {
+      contract_id,
+      type,
+      checklist,
+      problems_faced,
+      sprint_number,
+      evidence,
+    } = data;
 
-    // 1. Insert the log with 'submitted' status
     const query = `
-      INSERT INTO hour_logs (contract_id, expert_id, log_date, hours_worked, description, value_tags, status)
-      VALUES ($1, $2, $3, $4, $5, $6, 'submitted')
+      INSERT INTO work_logs (
+        contract_id,
+        type,
+        checklist,
+        problems_faced,
+        sprint_number,
+        evidence,
+        created_at
+      )
+      VALUES ($1, $2, $3, $4, $5, $6, NOW())
       RETURNING *;
     `;
-    
-    const { rows } = await pool.query(query, [
+
+    const values = [
       contract_id,
-      expert_id,
-      log_date,
-      hours_worked,
-      description,
-      value_tags
-    ]);
+      type,
+      checklist ? JSON.stringify(checklist) : null,
+      problems_faced,
+      sprint_number,
+      evidence ? JSON.stringify(evidence) : null,
+    ];
 
-    // ❌ REMOVED: Do not update contract totals here. 
-    // We only update totals when the Buyer approves the log.
-
+    const { rows } = await pool.query(query, values);
     return rows[0];
   },
 
-  // ✅ UPDATED: Accepts userId to allow both Buyer and Expert to view logs
-  getLogsByContract: async (contract_id, userId) => {
+  // Get work log by ID
+  getById: async (id) => {
+    const query = `SELECT * FROM work_logs WHERE id = $1`;
+    const { rows } = await pool.query(query, [id]);
+    return rows[0];
+  },
+
+  // Get all work logs for a contract
+  getByContractId: async (contract_id) => {
     const query = `
-      SELECT hl.*
-      FROM hour_logs hl
-      JOIN contracts c ON hl.contract_id = c.id
-      WHERE hl.contract_id = $1 
-      AND (c.buyer_id = $2 OR c.expert_id = $2) -- ✅ Check permission for both
-      ORDER BY hl.log_date DESC;
+      SELECT * FROM work_logs 
+      WHERE contract_id = $1 
+      ORDER BY created_at DESC
     `;
-    const { rows } = await pool.query(query, [contract_id, userId]);
+    const { rows } = await pool.query(query, [contract_id]);
     return rows;
   },
 
-  updateStatus: async (log_id, status, reason = null) => {
-    const client = await pool.connect();
-    try {
-      await client.query('BEGIN');
-
-      // 1. Update the log status
-      const query = `
-        UPDATE hour_logs 
-        SET status = $2, rejection_reason = $3 
-        WHERE id = $1 
-        RETURNING *;
-      `;
-      const { rows } = await client.query(query, [log_id, status, reason]);
-      const log = rows[0];
-
-      // 2. ✅ CRITICAL: If approved, NOW we update the contract totals
-      if (status === 'approved' && log) {
-        const updateContractSql = `
-          UPDATE contracts 
-          SET total_hours_logged = total_hours_logged + $2,
-              total_amount = total_amount + (hourly_rate * $2)
-          WHERE id = $1;
-        `;
-        await client.query(updateContractSql, [log.contract_id, log.hours_worked]);
-      }
-
-      await client.query('COMMIT');
-      return log;
-    } catch (e) {
-      await client.query('ROLLBACK');
-      throw e;
-    } finally {
-      client.release();
-    }
+  // Get work logs by expert (via contract)
+  getByExpertId: async (expert_id) => {
+    const query = `
+      SELECT wl.* 
+      FROM work_logs wl
+      JOIN contracts c ON wl.contract_id = c.id
+      WHERE c.expert_id = $1
+      ORDER BY wl.created_at DESC
+    `;
+    const { rows } = await pool.query(query, [expert_id]);
+    return rows;
   },
 
-  getWeeklySummary: async (contract_id, week_start) => {
+  // Check for recent daily logs (24-hour limit)
+  getRecentDailyLogs: async (contract_id) => {
     const query = `
-      SELECT 
-        COALESCE(SUM(hours_worked), 0) as total_hours,
-        COALESCE(SUM(CASE WHEN status = 'approved' THEN hours_worked ELSE 0 END), 0) as approved_hours,
-        COALESCE(SUM(CASE WHEN status = 'submitted' THEN hours_worked ELSE 0 END), 0) as pending_hours,
-        COALESCE(SUM(CASE WHEN status = 'rejected' THEN hours_worked ELSE 0 END), 0) as rejected_hours
-      FROM hour_logs 
+      SELECT * FROM work_logs 
       WHERE contract_id = $1 
-      AND log_date >= $2::date 
-      AND log_date < ($2::date + INTERVAL '7 days');
+        AND type = 'daily_log'
+        AND created_at > NOW() - INTERVAL '24 hours'
+      ORDER BY created_at DESC
     `;
-    const { rows } = await pool.query(query, [contract_id, week_start]);
+    const { rows } = await pool.query(query, [contract_id]);
+    return rows;
+  },
 
-    const contract_query = `SELECT weekly_hour_cap FROM contracts WHERE id = $1`;
-    const contract_res = await pool.query(contract_query, [contract_id]);
-    const weekly_limit = contract_res.rows[0]?.weekly_hour_cap || 0;
+  // Get sprint logs for a specific sprint
+  getSprintLogs: async (contract_id, sprint_number) => {
+    const query = `
+      SELECT * FROM work_logs 
+      WHERE contract_id = $1 
+        AND sprint_number = $2
+        AND type = 'sprint_submission'
+      ORDER BY created_at DESC
+    `;
+    const { rows } = await pool.query(query, [contract_id, sprint_number]);
+    return rows;
+  },
 
-    const summary = rows[0];
-    return {
-      ...summary,
-      weekly_limit,
-      remaining_hours: Math.max(0, weekly_limit - summary.total_hours)
-    };
-  }
+  // Update work log
+  update: async (id, data) => {
+    const { checklist, problems_faced, evidence } = data;
+
+    const query = `
+      UPDATE work_logs 
+      SET 
+        checklist = COALESCE($1, checklist),
+        problems_faced = COALESCE($2, problems_faced),
+        evidence = COALESCE($3, evidence)
+      WHERE id = $4
+      RETURNING *;
+    `;
+
+    const { rows } = await pool.query(query, [
+      checklist ? JSON.stringify(checklist) : null,
+      problems_faced,
+      evidence ? JSON.stringify(evidence) : null,
+      id,
+    ]);
+    return rows[0];
+  },
+
+  // Delete work log
+  delete: async (id) => {
+    const query = `DELETE FROM work_logs WHERE id = $1 RETURNING *`;
+    const { rows } = await pool.query(query, [id]);
+    return rows[0];
+  },
 };
 
 export default WorkLog;
