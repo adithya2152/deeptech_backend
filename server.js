@@ -3,6 +3,9 @@ import cors from "cors";
 import dotenv from "dotenv";
 import pool from "./config/db.js";
 import userAuthRoutes from "./routes/userAuthRoutes.js";
+import projectRoutes from "./routes/projectRoutes.js";
+import expertRoutes from "./routes/expertRoutes.js";
+import messageRoutes from "./routes/messageRoutes.js";
 import proposalsRoutes from "./routes/proposalsRoutes.js";
 import contractsRoutes from "./routes/contractsRoutes.js";
 import workLogsRoutes from "./routes/workLogsRoutes.js";
@@ -82,13 +85,12 @@ app.get("/", async (req, res) => {
 // Authentication routes
 app.use("/api/auth", userAuthRoutes);
 
-// Proposals routes
+app.use("/api/experts", expertRoutes);
+app.use("/api/projects", projectRoutes);
+app.use("/api/conversations", messageRoutes);
+
 app.use("/api/proposals", proposalsRoutes);
-
-// Contracts routes
 app.use("/api/contracts", contractsRoutes);
-
-// Work Logs routes
 app.use("/api/work-logs", workLogsRoutes);
 
 // 404 handler for undefined routes

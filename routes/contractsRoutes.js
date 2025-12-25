@@ -1,7 +1,7 @@
 import express from "express";
 import { auth } from "../middleware/auth.js";
 import { requireRole } from "../middleware/rbac.js";
-import * as contractsController from "../controllers/contractsController.js";
+import * as contractController from "../controllers/contractController.js";
 
 const router = express.Router();
 
@@ -10,8 +10,8 @@ router.post(
   "/",
   auth,
   requireRole("buyer"),
-  contractsController.validateContractCreation,
-  contractsController.createContract
+  contractController.validateContractCreation,
+  contractController.createContract
 );
 
 // Accept contract and sign NDA (Experts only)
@@ -19,29 +19,32 @@ router.post(
   "/:contractId/accept-and-sign-nda",
   auth,
   requireRole("expert"),
-  contractsController.validateNdaSigning,
-  contractsController.acceptAndSignNda
+  contractController.validateNdaSigning,
+  contractController.acceptAndSignNda
 );
 
 // Get all contracts for current user
-router.get("/", auth, contractsController.getMyContracts);
+router.get("/", auth, contractController.getMyContracts);
 
 // Get all contracts for a project
+router.get("/project/:projectId", auth, contractController.getProjectContracts);
+
+// Get invoices for a contract
 router.get(
-  "/project/:projectId",
+  "/:contractId/invoices",
   auth,
-  contractsController.getProjectContracts
+  contractController.getContractInvoices
 );
 
 // Get contract by ID
-router.get("/:contractId", auth, contractsController.getContractById);
+router.get("/:contractId", auth, contractController.getContractById);
 
 // Decline contract (Expert only)
 router.post(
   "/:contractId/decline",
   auth,
   requireRole("expert"),
-  contractsController.declineContract
+  contractController.declineContract
 );
 
 export default router;

@@ -2,16 +2,16 @@ import express from "express";
 import { auth } from "../middleware/auth.js";
 import { requireRole } from "../middleware/rbac.js";
 import { uploadMultiple, handleUploadError } from "../middleware/upload.js";
-import * as workLogsController from "../controllers/workLogsController.js";
+import * as workLogsController from "../controllers/workLogController.js";
 
 const router = express.Router();
 
-// Create a new work log (Experts only) - with file upload support
+// Create a new work log (Experts only)
 router.post(
   "/",
   auth,
   requireRole("expert"),
-  uploadMultiple("attachments", 10), // Allow up to 10 attachments
+  uploadMultiple("attachments", 10),
   handleUploadError,
   workLogsController.validateWorkLog,
   workLogsController.createWorkLog
@@ -32,7 +32,23 @@ router.get(
   workLogsController.getMyWorkLogs
 );
 
+// ✅ Approve / Reject work log (Buyer only)
+router.patch(
+  "/:workLogId",
+  auth,
+  requireRole("buyer"),
+  workLogsController.updateWorkLogStatus
+);
+
 // Get work log by ID
 router.get("/:workLogId", auth, workLogsController.getWorkLogById);
+
+// Finish sprint (Buyer only)
+router.post(
+  "/:id/finish-sprint",
+  auth,
+  requireRole("buyer"),
+  workLogsController.finishSprint
+);
 
 export default router;

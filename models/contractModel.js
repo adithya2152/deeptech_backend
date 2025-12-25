@@ -1,6 +1,19 @@
 import pool from "../config/db.js";
 
 const Contract = {
+  findActiveOrPendingForPair: async (project_id, expert_id) => {
+    const query = `
+      SELECT *
+      FROM contracts
+      WHERE project_id = $1
+        AND expert_id = $2
+        AND status IN ('pending', 'active', 'paused', 'disputed')
+      LIMIT 1;
+    `;
+    const { rows } = await pool.query(query, [project_id, expert_id]);
+    return rows[0];
+  },
+
   // Create a new contract (matches Supabase schema)
   createContract: async (data) => {
     const {
@@ -11,6 +24,20 @@ const Contract = {
       payment_terms,
       start_date,
     } = data;
+
+    // ✅ PREVENT DUPLICATE CONTRACTS FOR SAME PROJECT + EXPERT
+    const existing = await Contract.findActiveOrPendingForPair(
+      project_id,
+      expert_id
+    );
+    if (existing) {
+      const error = new Error(
+        "A contract already exists between this buyer and expert for this project."
+      );
+      // Optional: attach code so controller can map to 400
+      error.statusCode = 400;
+      throw error;
+    }
 
     const query = `
       INSERT INTO contracts (
@@ -156,11 +183,24 @@ const Contract = {
     return rows[0];
   },
 
+  updatePaymentTerms: async (id, payment_terms) => {
+    const query = `
+      UPDATE contracts
+      SET payment_terms = $2
+      WHERE id = $1
+      RETURNING *;
+    `;
+    const values = [id, JSON.stringify(payment_terms)];
+    const { rows } = await pool.query(query, values);
+    return rows[0];
+  },
+
   getInvoices: async (contract_id) => {
     const query = `SELECT * FROM invoices WHERE contract_id = $1 ORDER BY created_at DESC`;
     const { rows } = await pool.query(query, [contract_id]);
     return rows;
   },
+
 };
 
 export default Contract;

@@ -19,20 +19,19 @@ const WorkLog = {
         checklist,
         problems_faced,
         sprint_number,
-        evidence,
-        created_at
+        evidence
       )
-      VALUES ($1, $2, $3, $4, $5, $6, NOW())
+      VALUES ($1, $2, $3, $4, $5, $6)
       RETURNING *;
     `;
 
     const values = [
       contract_id,
       type,
-      checklist ? JSON.stringify(checklist) : null,
-      problems_faced,
-      sprint_number,
-      evidence ? JSON.stringify(evidence) : null,
+      checklist ? JSON.stringify(checklist) : null,   // ✅ stringify
+      problems_faced ?? null,
+      sprint_number ?? null,
+      evidence ? JSON.stringify(evidence) : null      // ✅ stringify
     ];
 
     const { rows } = await pool.query(query, values);
@@ -94,6 +93,28 @@ const WorkLog = {
     `;
     const { rows } = await pool.query(query, [contract_id, sprint_number]);
     return rows;
+  },
+  
+  // Update work log status (for finishing sprint)
+  updateStatus: async (id, data) => {
+    const { status, buyer_comment } = data;
+
+    const query = `
+      UPDATE work_logs 
+      SET 
+        status = COALESCE($2, status),
+        buyer_comment = COALESCE($3, buyer_comment)
+      WHERE id = $1
+      RETURNING *;
+    `;
+
+    const { rows } = await pool.query(query, [
+      id,
+      status,
+      buyer_comment ?? null,
+    ]);
+
+    return rows[0];
   },
 
   // Update work log

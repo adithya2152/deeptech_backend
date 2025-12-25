@@ -160,6 +160,33 @@ export const submitProposal = async (req, res) => {
   }
 };
 
+export const finishSprint = async (req, res) => {
+  try {
+    const { contractId } = req.params;
+
+    const contract = await Contract.getById(contractId);
+    if (!contract) {
+      return res.status(404).json({ success: false, message: 'Contract not found' });
+    }
+
+    if (contract.engagement_model !== 'sprint') {
+      return res.status(400).json({ success: false, message: 'Not a sprint contract' });
+    }
+
+    const currentSprint = contract.payment_terms.current_sprint_number || 1;
+
+    const updated = await Contract.updatePaymentTerms(contractId, {
+      ...contract.payment_terms,
+      current_sprint_number: currentSprint + 1,
+      sprint_start_date: new Date().toISOString(),
+    });
+
+    res.json({ success: true, data: updated });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
+
 export default {
   getMyProjects,
   getMarketplaceProjects,

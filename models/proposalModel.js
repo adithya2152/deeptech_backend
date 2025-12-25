@@ -65,19 +65,20 @@ const Proposal = {
 
   // Get all proposals for a project
   getByProjectId: async (project_id) => {
-    const query = `
-      SELECT p.*, 
-        prof.first_name as expert_first_name,
-        prof.last_name as expert_last_name,
-        prof.avatar_url as expert_avatar
-      FROM proposals p
-      JOIN profiles prof ON p.expert_id = prof.id
-      WHERE p.project_id = $1
-      ORDER BY p.created_at DESC
-    `;
-    const { rows } = await pool.query(query, [project_id]);
-    return rows;
-  },
+  const query = `
+    SELECT
+      p.*,
+      prof.first_name || ' ' || prof.last_name AS expert_name,
+      prof.avatar_url AS expert_avatar
+    FROM proposals p
+    JOIN profiles prof ON p.expert_id = prof.id
+    WHERE p.project_id = $1
+    ORDER BY p.created_at DESC
+  `;
+  const { rows } = await pool.query(query, [project_id]);
+  return rows;
+},
+
 
   // Get all proposals by an expert
   getByExpertId: async (expert_id) => {
