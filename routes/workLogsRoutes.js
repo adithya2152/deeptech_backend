@@ -51,4 +51,12 @@ router.post(
   workLogsController.finishSprint
 );
 
+// Expert can edit own submitted logs
+router.patch(
+  '/:workLogId/edit',
+  auth,
+  requireRole('expert'),
+  workLogsController.updateWorkLogContent
+);
+
 export default router;

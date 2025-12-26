@@ -71,18 +71,37 @@ export const createWorkLog = async (req, res) => {
       });
     }
 
-    // For daily logs: check 24-hour submission limit
-    if (type === "daily_log" && contract.engagement_model === "daily") {
-      const recentLogs = await WorkLog.getRecentDailyLogs(contract_id);
-      if (recentLogs.length > 0) {
-        return res.status(400).json({
-          success: false,
-          message: "You can only submit one daily log per 24-hour period",
-        });
-      }
+    const logDate = req.body.log_date || new Date().toISOString().split('T')[0];
+    
+    // Determine sprint number (backend-owned) for sprint contracts
+    let sprintNumberToSave = null;
+    if (contract.engagement_model === "sprint" && type === "sprint_submission") {
+      const paymentTerms =
+        typeof contract.payment_terms === "string"
+          ? JSON.parse(contract.payment_terms)
+          : contract.payment_terms || {};
+
+      const currentSprint =
+        typeof paymentTerms.current_sprint_number === "number"
+          ? paymentTerms.current_sprint_number
+          : 1;
+
+      sprintNumberToSave = currentSprint;
     }
 
-    // Handle file uploads
+    const submissionError = await WorkLog.validateSubmission(
+      contract_id, 
+      type, 
+      sprintNumberToSave, 
+      logDate
+    );
+    if (submissionError) {
+      return res.status(400).json({
+        success: false,
+        message: submissionError,
+      });
+    }
+
     // Handle file uploads
     let evidence = {};
     if (req.files && req.files.length > 0) {
@@ -108,7 +127,6 @@ export const createWorkLog = async (req, res) => {
         summary: req.body.evidence_summary || "",
       };
     } else if (req.body.evidence) {
-      // ✅ SAFE JSON HANDLING - validate before parsing
       try {
         evidence = typeof req.body.evidence === "string"
           ? JSON.parse(req.body.evidence)
@@ -126,24 +144,6 @@ export const createWorkLog = async (req, res) => {
       evidence = {};
     }
 
-
-    // Determine sprint number (backend-owned) for sprint contracts
-    let sprintNumberToSave = null;
-    if (contract.engagement_model === "sprint" && type === "sprint_submission") {
-      const paymentTerms =
-        typeof contract.payment_terms === "string"
-          ? JSON.parse(contract.payment_terms)
-          : contract.payment_terms || {};
-
-      const currentSprint =
-        typeof paymentTerms.current_sprint_number === "number"
-          ? paymentTerms.current_sprint_number
-          : 1;
-
-      sprintNumberToSave = currentSprint;
-    }
-
-    // Create work log
     const workLog = await WorkLog.create({
       contract_id,
       type,
@@ -151,6 +151,8 @@ export const createWorkLog = async (req, res) => {
       problems_faced,
       sprint_number: sprintNumberToSave,
       evidence,
+      description: req.body.description,
+      log_date: logDate,
     });
 
     res.status(201).json({
@@ -343,6 +345,68 @@ export const updateWorkLogStatus = async (req, res) => {
   }
 };
 
+export const updateWorkLogContent = async (req, res) => {
+  try {
+    const { workLogId } = req.params;
+    const userId = req.user.id;
+    const { description, checklist, problems_faced, evidence } = req.body;
+
+    const workLog = await WorkLog.getById(workLogId);
+    if (!workLog) {
+      return res.status(404).json({
+        success: false,
+        message: 'Work log not found',
+      });
+    }
+
+    const contract = await Contract.getById(workLog.contract_id);
+    if (!contract) {
+      return res.status(404).json({
+        success: false,
+        message: 'Associated contract not found',
+      });
+    }
+
+    // Only expert who owns the contract (or admin)
+    if (
+      contract.expert_id !== userId &&
+      req.user.role !== 'admin'
+    ) {
+      return res.status(403).json({
+        success: false,
+        message: 'You can only edit your own work logs',
+      });
+    }
+
+    // Only allow editing submitted logs
+    if (workLog.status !== 'submitted') {
+      return res.status(400).json({
+        success: false,
+        message: 'Only submitted logs can be edited',
+      });
+    }
+
+    const updated = await WorkLog.update(workLogId, {
+      description,
+      checklist,
+      problems_faced,
+      evidence,
+    });
+
+    return res.json({
+      success: true,
+      message: 'Work log updated',
+      data: updated,
+    });
+  } catch (error) {
+    console.error('Update work log content error:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to update work log',
+      error: error.message,
+    });
+  }
+};
 
 export const finishSprint = async (req, res) => {
   try {
@@ -445,4 +509,5 @@ export default {
   updateWorkLogStatus,
   finishSprint,
   validateWorkLog,
+  updateWorkLogContent,
 };
