@@ -201,6 +201,31 @@ const Contract = {
     return rows;
   },
 
+  // Fund escrow balance
+  fundEscrow: async (contract_id, amount) => {
+    const query = `
+      UPDATE contracts
+      SET 
+        escrow_balance = escrow_balance + $2,
+        escrow_funded_total = escrow_funded_total + $2
+      WHERE id = $1
+      RETURNING *;
+    `;
+    const { rows } = await pool.query(query, [contract_id, amount]);
+    return rows[0];
+  },
+
+  // Update contract status
+  updateStatus: async (contract_id, status) => {
+    const query = `
+      UPDATE contracts
+      SET status = $2
+      WHERE id = $1
+      RETURNING *;
+    `;
+    const { rows } = await pool.query(query, [contract_id, status]);
+    return rows[0];
+  },
 };
 
 export default Contract;

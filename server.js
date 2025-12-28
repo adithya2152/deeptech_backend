@@ -9,6 +9,8 @@ import messageRoutes from "./routes/messageRoutes.js";
 import proposalsRoutes from "./routes/proposalsRoutes.js";
 import contractsRoutes from "./routes/contractsRoutes.js";
 import workLogsRoutes from "./routes/workLogsRoutes.js";
+import invoiceRoutes from "./routes/invoiceRoutes.js";
+import dayWorkSummariesRoutes from "./routes/dayWorkSummariesRoutes.js";
 import { initializeStorageBuckets } from "./utils/storage.js";
 
 dotenv.config();
@@ -92,6 +94,8 @@ app.use("/api/conversations", messageRoutes);
 app.use("/api/proposals", proposalsRoutes);
 app.use("/api/contracts", contractsRoutes);
 app.use("/api/work-logs", workLogsRoutes);
+app.use("/api/invoices", invoiceRoutes);
+app.use("/api/day-work-summaries", dayWorkSummariesRoutes);
 
 // 404 handler for undefined routes
 app.use((req, res) => {

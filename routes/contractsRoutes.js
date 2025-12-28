@@ -47,4 +47,28 @@ router.post(
   contractController.declineContract
 );
 
+// Fund escrow (Buyer only)
+router.post(
+  "/:contractId/fund",
+  auth,
+  requireRole("buyer"),
+  contractController.fundEscrow
+);
+
+// Finish sprint (Buyer only) - for sprint engagement model
+router.post(
+  "/:id/finish-sprint",
+  auth,
+  requireRole("buyer"),
+  contractController.finishSprint
+);
+
+// Complete contract (Buyer only)
+router.post(
+  "/:id/complete",
+  auth,
+  requireRole("buyer"),
+  contractController.completeContract
+);
+
 export default router;

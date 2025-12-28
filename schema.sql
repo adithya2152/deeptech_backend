@@ -46,6 +46,10 @@ CREATE TABLE public.contracts (
   nda_ip_address text,
   start_date date NOT NULL,
   created_at timestamp without time zone DEFAULT now(),
+  total_amount numeric DEFAULT 0,
+  escrow_balance numeric DEFAULT 0,
+  escrow_funded_total numeric DEFAULT 0,
+  released_total numeric DEFAULT 0,
   CONSTRAINT contracts_pkey PRIMARY KEY (id)
 );
 CREATE TABLE public.conversations (
@@ -56,6 +60,19 @@ CREATE TABLE public.conversations (
   updated_at timestamp with time zone DEFAULT now(),
   last_message_at timestamp with time zone DEFAULT now(),
   CONSTRAINT conversations_pkey PRIMARY KEY (id)
+);
+CREATE TABLE public.day_work_summaries (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  contract_id uuid NOT NULL,
+  expert_id uuid NOT NULL,
+  work_date date NOT NULL,
+  total_hours numeric NOT NULL,
+  status text DEFAULT 'pending'::text CHECK (status = ANY (ARRAY['pending'::text, 'approved'::text, 'rejected'::text])),
+  reviewer_comment text,
+  approved_at timestamp with time zone,
+  created_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT day_work_summaries_pkey PRIMARY KEY (id),
+  CONSTRAINT dws_contract_fk FOREIGN KEY (contract_id) REFERENCES public.contracts(id)
 );
 CREATE TABLE public.doubt_answers (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
@@ -100,6 +117,11 @@ CREATE TABLE public.experts (
   products ARRAY DEFAULT '{}'::text[],
   created_at timestamp with time zone DEFAULT now(),
   updated_at timestamp with time zone DEFAULT now(),
+  skills ARRAY DEFAULT '{}'::text[],
+  expertise_areas ARRAY DEFAULT '{}'::text[],
+  embedding_text text,
+  embedding_updated_at timestamp with time zone,
+  embedding USER-DEFINED,
   CONSTRAINT experts_pkey PRIMARY KEY (id)
 );
 CREATE TABLE public.feedback (
@@ -115,6 +137,18 @@ CREATE TABLE public.feedback (
   CONSTRAINT feedback_pkey PRIMARY KEY (id),
   CONSTRAINT feedback_project_id_projects_id_fk FOREIGN KEY (project_id) REFERENCES public.projects(id)
 );
+CREATE TABLE public.final_project_approvals (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  contract_id uuid NOT NULL UNIQUE,
+  expert_id uuid NOT NULL,
+  engagement_model USER-DEFINED NOT NULL,
+  final_status text NOT NULL CHECK (final_status = ANY (ARRAY['pending'::text, 'approved'::text, 'rejected'::text])),
+  approval_summary text,
+  approved_at timestamp with time zone,
+  created_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT final_project_approvals_pkey PRIMARY KEY (id),
+  CONSTRAINT fpa_contract_fk FOREIGN KEY (contract_id) REFERENCES public.contracts(id)
+);
 CREATE TABLE public.invoices (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
   contract_id uuid NOT NULL,
@@ -128,6 +162,8 @@ CREATE TABLE public.invoices (
   created_at timestamp with time zone DEFAULT now(),
   updated_at timestamp with time zone DEFAULT now(),
   invoice_type text DEFAULT 'periodic'::text CHECK (invoice_type = ANY (ARRAY['periodic'::text, 'sprint'::text, 'milestone'::text])),
+  source_type text,
+  source_id uuid,
   CONSTRAINT invoices_pkey PRIMARY KEY (id),
   CONSTRAINT invoices_expert_id_fk FOREIGN KEY (expert_id) REFERENCES public.experts(id)
 );
@@ -329,6 +365,20 @@ CREATE TABLE public.update_comments (
   CONSTRAINT update_comments_pkey PRIMARY KEY (id),
   CONSTRAINT update_comments_update_id_project_updates_id_fk FOREIGN KEY (update_id) REFERENCES public.project_updates(id)
 );
+CREATE TABLE public.work_activity_logs (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  contract_id uuid NOT NULL,
+  expert_id uuid NOT NULL,
+  engagement_model USER-DEFINED NOT NULL,
+  activity_type text NOT NULL,
+  description text NOT NULL,
+  evidence jsonb DEFAULT '{}'::jsonb,
+  logged_hours numeric,
+  log_timestamp timestamp with time zone DEFAULT now(),
+  created_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT work_activity_logs_pkey PRIMARY KEY (id),
+  CONSTRAINT wal_contract_fk FOREIGN KEY (contract_id) REFERENCES public.contracts(id)
+);
 CREATE TABLE public.work_logs (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
   contract_id uuid NOT NULL,
@@ -338,6 +388,11 @@ CREATE TABLE public.work_logs (
   sprint_number integer,
   evidence jsonb,
   created_at timestamp without time zone DEFAULT now(),
+  status text DEFAULT 'submitted'::text,
+  log_date date,
+  description text,
+  value_tags jsonb DEFAULT '{}'::jsonb,
+  buyer_comment text,
   CONSTRAINT work_logs_pkey PRIMARY KEY (id),
   CONSTRAINT work_logs_contract_id_fkey FOREIGN KEY (contract_id) REFERENCES public.contracts(id)
 );

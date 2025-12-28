@@ -1,6 +1,7 @@
 import { body, validationResult } from "express-validator";
 import Contract from "../models/contractModel.js";
 import Proposal from "../models/proposalModel.js";
+import Invoice from "../models/invoiceModel.js";
 import pool from "../config/db.js";
 
 // Validation middleware
@@ -69,8 +70,10 @@ export const createContract = async (req, res) => {
     }
 
     // ✅ Check if a non-final contract already exists for this project + expert
-    const existingContract =
-      await Contract.findActiveOrPendingForPair(project_id, expert_id);
+    const existingContract = await Contract.findActiveOrPendingForPair(
+      project_id,
+      expert_id
+    );
 
     if (existingContract) {
       return res.status(400).json({
@@ -394,6 +397,217 @@ function validatePaymentTerms(engagementModel, paymentTerms) {
   }
 }
 
+// Fund escrow (Buyer or Admin only)
+export const fundEscrow = async (req, res) => {
+  try {
+    const { contractId } = req.params;
+    const { amount } = req.body;
+    const userId = req.user.id;
+    const userRole = req.user.role;
+
+    // Validate amount
+    if (!amount || amount <= 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Amount must be greater than 0",
+      });
+    }
+
+    // Get contract
+    const contract = await Contract.getById(contractId);
+    if (!contract) {
+      return res.status(404).json({
+        success: false,
+        message: "Contract not found",
+      });
+    }
+
+    // Check authorization: buyer or admin
+    if (contract.buyer_id !== userId && userRole !== "admin") {
+      return res.status(403).json({
+        success: false,
+        message: "Only the buyer can fund escrow",
+      });
+    }
+
+    // Fund escrow
+    const updatedContract = await Contract.fundEscrow(contractId, amount);
+
+    return res.status(200).json({
+      success: true,
+      message: "Escrow funded successfully",
+      data: updatedContract,
+    });
+  } catch (error) {
+    console.error("Fund escrow error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to fund escrow",
+      error: error.message,
+    });
+  }
+};
+
+// Complete contract (Buyer or Admin only)
+export const completeContract = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const userId = req.user.id;
+    const userRole = req.user.role;
+
+    // Get contract
+    const contract = await Contract.getById(id);
+    if (!contract) {
+      return res.status(404).json({
+        success: false,
+        message: "Contract not found",
+      });
+    }
+
+    // Check authorization: buyer or admin
+    if (contract.buyer_id !== userId && userRole !== "admin") {
+      return res.status(403).json({
+        success: false,
+        message: "Only the buyer can complete the contract",
+      });
+    }
+
+    // Validate contract status allows completion
+    if (contract.status !== "active") {
+      return res.status(400).json({
+        success: false,
+        message: "Only active contracts can be completed",
+      });
+    }
+
+    // If fixed engagement model, create final invoice
+    if (contract.engagement_model === "fixed") {
+      try {
+        const paymentTerms =
+          typeof contract.payment_terms === "string"
+            ? JSON.parse(contract.payment_terms)
+            : contract.payment_terms || {};
+
+        await Invoice.createFinalFixed({
+          contractId: id,
+          expertId: contract.expert_id,
+          buyerId: contract.buyer_id,
+          paymentTerms: paymentTerms,
+        });
+      } catch (invoiceError) {
+        console.error("Final invoice creation error:", invoiceError);
+        // Continue with completion even if invoice fails
+      }
+    }
+
+    // Update contract status to completed
+    const updatedContract = await Contract.updateStatus(id, "completed");
+
+    return res.status(200).json({
+      success: true,
+      message: "Contract completed successfully",
+      data: updatedContract,
+    });
+  } catch (error) {
+    console.error("Complete contract error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to complete contract",
+      error: error.message,
+    });
+  }
+};
+
+// Finish sprint (Buyer or Admin only) - for sprint engagement model
+export const finishSprint = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const userId = req.user.id;
+    const userRole = req.user.role;
+
+    const contract = await Contract.getById(id);
+    if (!contract) {
+      return res.status(404).json({
+        success: false,
+        message: "Contract not found",
+      });
+    }
+
+    // Only sprint contracts
+    if (contract.engagement_model !== "sprint") {
+      return res.status(400).json({
+        success: false,
+        message: "Only sprint contracts can finish a sprint",
+      });
+    }
+
+    // Check authorization: buyer or admin
+    if (contract.buyer_id !== userId && userRole !== "admin") {
+      return res.status(403).json({
+        success: false,
+        message: "Only the buyer can finish the sprint",
+      });
+    }
+
+    // Verify contract is active
+    if (contract.status !== "active") {
+      return res.status(400).json({
+        success: false,
+        message: "Contract must be active to finish a sprint",
+      });
+    }
+
+    const paymentTerms =
+      typeof contract.payment_terms === "string"
+        ? JSON.parse(contract.payment_terms)
+        : contract.payment_terms || {};
+
+    const currentSprint =
+      typeof paymentTerms.current_sprint_number === "number"
+        ? paymentTerms.current_sprint_number
+        : 1;
+
+    // Create invoice for the completed sprint
+    try {
+      await Invoice.createFromSprint(
+        id,
+        contract.expert_id,
+        contract.buyer_id,
+        paymentTerms,
+        currentSprint
+      );
+    } catch (invoiceError) {
+      console.error("Sprint invoice creation error:", invoiceError);
+      // Continue with sprint advancement even if invoice fails
+    }
+
+    // Advance to next sprint
+    const updatedPaymentTerms = {
+      ...paymentTerms,
+      current_sprint_number: currentSprint + 1,
+      sprint_start_date: new Date().toISOString(),
+    };
+
+    const updatedContract = await Contract.updatePaymentTerms(
+      id,
+      updatedPaymentTerms
+    );
+
+    return res.json({
+      success: true,
+      message: "Sprint finished and next sprint started",
+      data: updatedContract,
+    });
+  } catch (error) {
+    console.error("Finish sprint error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to finish sprint",
+      error: error.message,
+    });
+  }
+};
+
 export default {
   createContract,
   acceptAndSignNda,
@@ -402,6 +616,9 @@ export default {
   getProjectContracts,
   declineContract,
   getContractInvoices,
+  fundEscrow,
+  completeContract,
+  finishSprint,
   validateContractCreation,
   validateNdaSigning,
 };
