@@ -69,11 +69,10 @@ export const createContract = async (req, res) => {
       });
     }
 
-    // ✅ Check if a non-final contract already exists for this project + expert
-    const existingContract = await Contract.findActiveOrPendingForPair(
-      project_id,
-      expert_id
-    );
+    
+    // Check if a non-final contract already exists for this project + expert
+    const existingContract =
+      await Contract.findActiveOrPendingForPair(project_id, expert_id);
 
     if (existingContract) {
       return res.status(400).json({
@@ -97,6 +96,12 @@ export const createContract = async (req, res) => {
     await pool.query(
       "UPDATE proposals SET status = $1, updated_at = NOW() WHERE project_id = $2 AND expert_id = $3 AND status = $4",
       ["accepted", project_id, expert_id, "pending"]
+    );
+
+    // Decline other pending proposals for the same project
+    await pool.query(
+      "UPDATE proposals SET status = $1, updated_at = NOW() WHERE project_id = $2 AND expert_id <> $3 AND status = $4",
+      ["rejected", project_id, expert_id, "pending"]
     );
 
     res.status(201).json({
@@ -311,14 +316,27 @@ export const declineContract = async (req, res) => {
       });
     }
 
+    // 1) Update contract status to declined
     await pool.query("UPDATE contracts SET status = $1 WHERE id = $2", [
       "declined",
       contractId,
     ]);
 
+    // 2) Re-open this expert's proposal for that project (regardless of current status)
+    await pool.query(
+          `
+      UPDATE proposals
+      SET status = 'pending', updated_at = NOW()
+      WHERE project_id = $1
+        AND expert_id = $2
+      `,
+      [contract.project_id, expertId]
+    );
+
     res.status(200).json({
       success: true,
       message: "Contract declined successfully",
+      data: { contractId, projectId: contract.project_id },
     });
   } catch (error) {
     console.error("Decline contract error:", error);
@@ -330,7 +348,7 @@ export const declineContract = async (req, res) => {
   }
 };
 
-// Get invoices for a contract (buyer or expert on that contract)
+// Get invoices for a contract
 export const getContractInvoices = async (req, res) => {
   try {
     const { contractId } = req.params;
@@ -345,7 +363,6 @@ export const getContractInvoices = async (req, res) => {
       });
     }
 
-    // Access control: buyer, expert, or admin
     if (
       contract.buyer_id !== userId &&
       contract.expert_id !== userId &&
@@ -378,7 +395,8 @@ function validatePaymentTerms(engagementModel, paymentTerms) {
   switch (engagementModel) {
     case "daily":
       return (
-        paymentTerms.daily_rate && typeof paymentTerms.daily_rate === "number"
+        typeof paymentTerms.daily_rate === "number" &&
+        typeof paymentTerms.total_days === "number"
       );
     case "sprint":
       return (

@@ -7,14 +7,14 @@ const Contract = {
       FROM contracts
       WHERE project_id = $1
         AND expert_id = $2
-        AND status IN ('pending', 'active', 'paused', 'disputed')
+        AND status IN ('pending', 'active', 'paused')
       LIMIT 1;
     `;
     const { rows } = await pool.query(query, [project_id, expert_id]);
     return rows[0];
   },
 
-  // Create a new contract (matches Supabase schema)
+  // Create a new contract
   createContract: async (data) => {
     const {
       project_id,
@@ -25,7 +25,6 @@ const Contract = {
       start_date,
     } = data;
 
-    // ✅ PREVENT DUPLICATE CONTRACTS FOR SAME PROJECT + EXPERT
     const existing = await Contract.findActiveOrPendingForPair(
       project_id,
       expert_id
@@ -34,9 +33,22 @@ const Contract = {
       const error = new Error(
         "A contract already exists between this buyer and expert for this project."
       );
-      // Optional: attach code so controller can map to 400
       error.statusCode = 400;
       throw error;
+    }
+
+    let total_amount = 0;
+
+    if (engagement_model === "sprint") {
+      const sprintRate = Number(payment_terms?.sprint_rate || 0);
+      const totalSprints = Number(payment_terms?.total_sprints || 0);
+      total_amount = sprintRate * totalSprints;
+    }
+
+    if (engagement_model === "daily") {
+      const rate = Number(payment_terms?.daily_rate || 0);
+      const days = Number(payment_terms?.total_days || 0);
+      total_amount = rate * days;
     }
 
     const query = `
@@ -48,9 +60,10 @@ const Contract = {
         payment_terms,
         start_date,
         status,
-        created_at
+        created_at,
+        total_amount       
       )
-      VALUES ($1, $2, $3, $4, $5, $6, 'pending', NOW())
+      VALUES ($1, $2, $3, $4, $5, $6, 'pending', NOW(), $7)
       RETURNING *;
     `;
 
@@ -61,6 +74,7 @@ const Contract = {
       engagement_model,
       JSON.stringify(payment_terms),
       start_date,
+      total_amount,
     ];
 
     const { rows } = await pool.query(query, values);
@@ -87,7 +101,7 @@ const Contract = {
     return rows[0];
   },
 
-  // Get contract by ID with basic info
+  // Get contract by ID
   getById: async (id) => {
     const query = `SELECT * FROM contracts WHERE id = $1`;
     const { rows } = await pool.query(query, [id]);
@@ -115,7 +129,7 @@ const Contract = {
     return rows;
   },
 
-  // Check for pending contract (for NDA gating)
+  // Pending contract for expert+project
   getPendingContractForExpertAndProject: async (expert_id, project_id) => {
     const query = `
       SELECT * FROM contracts 
@@ -126,7 +140,7 @@ const Contract = {
     return rows[0];
   },
 
-  // Get contract with detailed project and user info
+  // Contract with project + profile details
   getContractWithDetails: async (id) => {
     const query = `
       SELECT 
@@ -196,7 +210,11 @@ const Contract = {
   },
 
   getInvoices: async (contract_id) => {
-    const query = `SELECT * FROM invoices WHERE contract_id = $1 ORDER BY created_at DESC`;
+    const query = `
+      SELECT * FROM invoices 
+      WHERE contract_id = $1 
+      ORDER BY created_at DESC
+    `;
     const { rows } = await pool.query(query, [contract_id]);
     return rows;
   },

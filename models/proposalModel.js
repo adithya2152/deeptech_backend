@@ -1,7 +1,7 @@
 import pool from "../config/db.js";
 
 const Proposal = {
-  // Create a new proposal (matches Supabase schema)
+  // Create or reuse a proposal (enforces 1 per project+expert)
   create: async (data) => {
     const {
       project_id,
@@ -14,23 +14,67 @@ const Proposal = {
       message,
     } = data;
 
-    const query = `
-      INSERT INTO proposals (
-        project_id,
-        expert_id,
-        engagement_model,
-        rate,
-        duration_days,
-        sprint_count,
-        quote_amount,
-        message,
-        status,
-        created_at,
-        updated_at
-      )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'pending', NOW(), NOW())
+    // 1) Check if a proposal already exists for this project+expert
+    const existingRes = await pool.query(
+      `
+    SELECT *
+    FROM proposals
+    WHERE project_id = $1 AND expert_id = $2
+    LIMIT 1
+    `,
+      [project_id, expert_id]
+    );
+
+    const existing = existingRes.rows[0];
+
+    if (existing) {
+      // 2) Update existing proposal instead of inserting a new one
+      const updateRes = await pool.query(
+        `
+      UPDATE proposals 
+      SET 
+        engagement_model = $1,
+        rate = $2,
+        duration_days = $3,
+        sprint_count = $4,
+        quote_amount = $5,
+        message = $6,
+        status = 'pending',
+        updated_at = NOW()
+      WHERE id = $7
       RETURNING *;
-    `;
+      `,
+        [
+          engagement_model,
+          rate,
+          duration_days,
+          sprint_count,
+          quote_amount,
+          message,
+          existing.id,
+        ]
+      );
+      return updateRes.rows[0];
+    }
+
+    // 3) If no existing proposal, insert a new one
+    const insertQuery = `
+    INSERT INTO proposals (
+      project_id,
+      expert_id,
+      engagement_model,
+      rate,
+      duration_days,
+      sprint_count,
+      quote_amount,
+      message,
+      status,
+      created_at,
+      updated_at
+    )
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'pending', NOW(), NOW())
+    RETURNING *;
+  `;
 
     const values = [
       project_id,
@@ -43,11 +87,11 @@ const Proposal = {
       message,
     ];
 
-    const { rows } = await pool.query(query, values);
+    const { rows } = await pool.query(insertQuery, values);
     return rows[0];
   },
 
-  // Get proposal by ID
+  // rest of your model stays the same
   getById: async (id) => {
     const query = `
       SELECT p.*, 
@@ -63,24 +107,22 @@ const Proposal = {
     return rows[0];
   },
 
-  // Get all proposals for a project
   getByProjectId: async (project_id) => {
-  const query = `
-    SELECT
-      p.*,
-      prof.first_name || ' ' || prof.last_name AS expert_name,
-      prof.avatar_url AS expert_avatar
-    FROM proposals p
-    JOIN profiles prof ON p.expert_id = prof.id
-    WHERE p.project_id = $1
-    ORDER BY p.created_at DESC
-  `;
-  const { rows } = await pool.query(query, [project_id]);
-  return rows;
-},
+    const query = `
+      SELECT
+        p.*,
+        prof.first_name || ' ' || prof.last_name AS expert_name,
+        prof.avatar_url AS expert_avatar
+      FROM proposals p
+      JOIN profiles prof ON p.expert_id = prof.id
+      WHERE p.project_id = $1
+        AND p.status = 'pending'
+      ORDER BY p.created_at DESC
+    `;
+    const { rows } = await pool.query(query, [project_id]);
+    return rows;
+  },
 
-
-  // Get all proposals by an expert
   getByExpertId: async (expert_id) => {
     const query = `
       SELECT p.*, 
@@ -97,7 +139,6 @@ const Proposal = {
     return rows;
   },
 
-  // Update proposal
   update: async (id, data) => {
     const {
       engagement_model,
@@ -134,7 +175,6 @@ const Proposal = {
     return rows[0];
   },
 
-  // Update proposal status
   updateStatus: async (id, status) => {
     const query = `
       UPDATE proposals 
@@ -146,7 +186,6 @@ const Proposal = {
     return rows[0];
   },
 
-  // Delete proposal
   delete: async (id) => {
     const query = `DELETE FROM proposals WHERE id = $1 RETURNING *`;
     const { rows } = await pool.query(query, [id]);
