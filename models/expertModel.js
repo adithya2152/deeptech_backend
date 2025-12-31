@@ -24,7 +24,9 @@ const Expert = {
         e.vetting_level as "vettingLevel",
         e.rating,
         e.review_count as "reviewCount",
-        e.total_hours as "totalHours"
+        e.total_hours as "totalHours",
+        e.skills,
+        e.expertise_areas
       FROM profiles p
       JOIN experts e ON p.id = e.id
       WHERE p.role = 'expert'
@@ -74,7 +76,7 @@ const Expert = {
         p.first_name || ' ' || p.last_name as name,
         p.email,
         p.role,
-        e.experience_summary, -- Added explicitly to match schema
+        e.experience_summary,
         e.experience_summary as "bio",
         e.experience_summary as "experienceSummary",
         COALESCE(e.domains, '{}') as domains,
@@ -83,6 +85,9 @@ const Expert = {
           'architectureReview', COALESCE(e.hourly_rate_architecture, 0),
           'handsOnExecution', COALESCE(e.hourly_rate_execution, 0)
         ) as "hourlyRates",
+        e.hourly_rate_advisory,
+        e.hourly_rate_architecture,
+        e.hourly_rate_execution,
         COALESCE(e.vetting_status, 'pending') as "vettingStatus",
         e.vetting_level as "vettingLevel",
         COALESCE(e.rating, 0) as rating,
@@ -90,7 +95,9 @@ const Expert = {
         e.availability,
         COALESCE(e.patents, '{}') as patents,
         COALESCE(e.papers, '{}') as papers,
-        COALESCE(e.products, '{}') as products
+        COALESCE(e.products, '{}') as products,
+        COALESCE(e.skills, '{}') as skills,
+        COALESCE(e.expertise_areas, '{}') as expertise_areas
       FROM profiles p
       LEFT JOIN experts e ON p.id = e.id
       WHERE p.id = $1
@@ -101,10 +108,6 @@ const Expert = {
 
   // ========== SEMANTIC SEARCH METHODS ==========
 
-  /**
-   * Get experts that need embeddings generated
-   * Returns experts with no embedding or stale embeddings
-   */
   getExpertsNeedingEmbedding: async () => {
     const sql = `
       SELECT 
@@ -127,12 +130,6 @@ const Expert = {
     return rows;
   },
 
-  /**
-   * Update expert embedding
-   * @param {string} expertId - Expert ID
-   * @param {number[]} embedding - 384-dimensional vector
-   * @param {string} text - The text that was embedded
-   */
   updateEmbedding: async (expertId, embedding, text) => {
     const sql = `
       UPDATE experts 
@@ -144,7 +141,6 @@ const Expert = {
       RETURNING id, embedding_updated_at
     `;
     
-    // Convert array to PostgreSQL vector format
     const vectorString = `[${embedding.join(',').slice(0, 10000)}]`;
     
     const { rows } = await pool.query(sql, [
@@ -155,9 +151,6 @@ const Expert = {
     return rows[0];
   },
 
-  /**
-   * Get all experts with embeddings (for semantic search)
-   */
   getAllWithEmbeddings: async () => {
     const sql = `
       SELECT 
@@ -181,9 +174,6 @@ const Expert = {
     return rows;
   },
 
-  /**
-   * Get expert with full details (including embedding)
-   */
   getById: async (id) => {
     const sql = `
       SELECT 

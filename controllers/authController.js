@@ -34,7 +34,8 @@ const generateTokens = (userId, email, role = "buyer") => {
 
 export const signup = async (req, res) => {
   try {
-    const { email, password, first_name, last_name, role = "buyer" } = req.body;
+    const { email, password, first_name, last_name, role = "buyer", domains = [] } = req.body;
+    console.log('📥 RECEIVED:', { email, first_name, last_name, role, domains });
 
     if (!email || !password) {
       return res.status(400).json({
@@ -81,12 +82,32 @@ export const signup = async (req, res) => {
 
     const result = await pool.query(
       `INSERT INTO profiles (id, email, first_name, last_name, role, created_at, updated_at)
-       VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
-       RETURNING id, email, first_name, last_name, role`,
-      [userId, email, last_name || "", last_name || "", role]
+      VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
+      RETURNING id, email, first_name, last_name, role`,
+      [userId, email, first_name || "", last_name || "", role]
     );
 
     const user = result.rows[0];
+
+    if (role === 'expert') {
+      const expertDomains = Array.isArray(domains) && domains.length > 0
+        ? domains
+        : ['general'];
+
+      await pool.query(
+        `INSERT INTO experts (
+          id, domains, experience_summary, 
+          hourly_rate_advisory, hourly_rate_architecture, hourly_rate_execution
+        ) VALUES ($1, $2, $3, $4, $5, $6)`,
+        [
+          userId,
+          expertDomains,
+          `Expert in ${expertDomains.join(', ')} ready for deep-tech projects`,
+          50, 75, 100
+        ]
+      );
+      console.log(`✅ Created expert profile for ${email} with domains: ${expertDomains.join(', ')}`);
+    }
 
     const { accessToken, refreshToken } = generateTokens(userId, email, role);
 
@@ -371,7 +392,7 @@ export const verifyEmail = async (req, res) => {
 
     const { data, error } = await supabase.auth.verifyOtp({
       token_hash: token,
-      type: type, 
+      type: type,
     });
 
     if (error) {

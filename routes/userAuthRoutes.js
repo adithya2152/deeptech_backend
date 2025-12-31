@@ -25,12 +25,9 @@ const validatePassword = body("password")
 const validateSignup = [
   validateEmail,
   validatePassword,
-  body("firstName").optional().trim().escape(),
-  body("lastName").optional().trim().escape(),
-  body("role")
-    .optional()
-    .isIn(["buyer", "expert", "admin"])
-    .withMessage("Invalid role"),
+  body("first_name").notEmpty().trim().escape().withMessage("First name required"),
+  body("last_name").notEmpty().trim().escape().withMessage("Last name required"),
+  body("role").isIn(["buyer", "expert"]).withMessage("Valid role required"),
 ];
 
 const validateLogin = [
@@ -42,6 +39,8 @@ const validateLogin = [
 const handleValidationErrors = (req, res, next) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
+    
+    console.log('❌ VALIDATION ERRORS:', errors.array());
     return res.status(400).json({
       success: false,
       message: "Validation error",

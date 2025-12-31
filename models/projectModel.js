@@ -36,11 +36,15 @@ const Project = {
     const sql = `
       SELECT 
         p.*, 
+        u.first_name || ' ' || u.last_name as buyer_name,
+        u.avatar_url as buyer_avatar,
+        u.created_at as buyer_joined_at,
         json_build_object(
           'id', u.id, 
           'first_name', u.first_name, 
           'last_name', u.last_name, 
-          'email', u.email
+          'email', u.email,
+          'avatar', u.avatar_url
         ) as buyer
       FROM projects p
       LEFT JOIN profiles u ON p.buyer_id = u.id 
@@ -65,7 +69,7 @@ const Project = {
       )
       VALUES (
         $1, $2, $3, $4, $5, $6, $7::text[], $8, $9, $10, 
-        COALESCE($11, 'draft') -- Defaults to 'draft' if status is null/undefined
+        COALESCE($11, 'draft')
       )
       RETURNING *;
     `;
