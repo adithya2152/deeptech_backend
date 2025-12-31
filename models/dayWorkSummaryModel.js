@@ -87,6 +87,15 @@ const DayWorkSummary = {
     const { rows } = await pool.query(query, [contract_id]);
     return rows;
   },
+
+  getByContractAndDate: async (contract_id, work_date) => {
+    const query = `
+      SELECT * FROM day_work_summaries 
+      WHERE contract_id = $1 AND work_date = $2
+    `;
+    const { rows } = await pool.query(query, [contract_id, work_date]);
+    return rows[0];
+  },
 };
 
 export default DayWorkSummary;

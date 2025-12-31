@@ -7,7 +7,6 @@ const jwtSecret = process.env.JWT_SECRET;
 const jwtExpiry = process.env.JWT_EXPIRY || "24h";
 const refreshTokenExpiry = process.env.REFRESH_TOKEN_EXPIRY || "7d";
 
-// Utility to generate tokens
 const generateTokens = (userId, email, role = "buyer") => {
   const accessToken = jwt.sign(
     {
@@ -33,12 +32,10 @@ const generateTokens = (userId, email, role = "buyer") => {
   return { accessToken, refreshToken };
 };
 
-// Sign up a new user with email and password
 export const signup = async (req, res) => {
   try {
-    const { email, password, firstName, lastName, role = "buyer" } = req.body;
+    const { email, password, first_name, last_name, role = "buyer" } = req.body;
 
-    // Validate input
     if (!email || !password) {
       return res.status(400).json({
         success: false,
@@ -53,7 +50,6 @@ export const signup = async (req, res) => {
       });
     }
 
-    // Check if user already exists in PostgreSQL
     const existingUser = await pool.query(
       "SELECT id FROM profiles WHERE email = $1",
       [email]
@@ -66,10 +62,8 @@ export const signup = async (req, res) => {
       });
     }
 
-    // Hash password
     const hashedPassword = await bcryptjs.hash(password, 10);
 
-    // Create user in Supabase Auth
     const { data: authData, error: authError } = await supabase.auth.signUp({
       email,
       password,
@@ -85,17 +79,15 @@ export const signup = async (req, res) => {
 
     const userId = authData.user.id;
 
-    // Create user profile in PostgreSQL
     const result = await pool.query(
       `INSERT INTO profiles (id, email, first_name, last_name, role, created_at, updated_at)
        VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
        RETURNING id, email, first_name, last_name, role`,
-      [userId, email, firstName || "", lastName || "", role]
+      [userId, email, last_name || "", last_name || "", role]
     );
 
     const user = result.rows[0];
 
-    // Generate tokens
     const { accessToken, refreshToken } = generateTokens(userId, email, role);
 
     return res.status(201).json({
@@ -125,12 +117,10 @@ export const signup = async (req, res) => {
   }
 };
 
-// Login user with email and password
 export const login = async (req, res) => {
   try {
     const { email, password } = req.body;
 
-    // Validate input
     if (!email || !password) {
       return res.status(400).json({
         success: false,
@@ -138,7 +128,6 @@ export const login = async (req, res) => {
       });
     }
 
-    // Authenticate with Supabase
     const { data: authData, error: authError } =
       await supabase.auth.signInWithPassword({
         email,
@@ -154,9 +143,8 @@ export const login = async (req, res) => {
 
     const userId = authData.user.id;
 
-    // Fetch user profile from PostgreSQL
     const result = await pool.query(
-      "SELECT id, email, first_name, last_name, role FROM profiles WHERE id = $1",
+      "SELECT id, email, first_name, last_name, role, is_banned, ban_reason FROM profiles WHERE id = $1",
       [userId]
     );
 
@@ -169,14 +157,21 @@ export const login = async (req, res) => {
 
     const user = result.rows[0];
 
-    // Generate JWT tokens
+    if (user.is_banned) {
+      return res.status(403).json({
+        success: false,
+        message: "Your account has been suspended.",
+        reason: user.ban_reason,
+        code: "USER_BANNED"
+      });
+    }
+
     const { accessToken, refreshToken } = generateTokens(
       userId,
       email,
       user.role
     );
 
-    // Update last login timestamp
     await pool.query("UPDATE profiles SET last_login = NOW() WHERE id = $1", [
       userId,
     ]);
@@ -208,7 +203,6 @@ export const login = async (req, res) => {
   }
 };
 
-// Refresh access token using refresh token
 export const refreshAccessToken = async (req, res) => {
   try {
     const { refreshToken } = req.body;
@@ -220,7 +214,6 @@ export const refreshAccessToken = async (req, res) => {
       });
     }
 
-    // Verify refresh token
     const decoded = jwt.verify(refreshToken, jwtSecret);
 
     if (decoded.type !== "refresh") {
@@ -230,9 +223,8 @@ export const refreshAccessToken = async (req, res) => {
       });
     }
 
-    // Fetch updated user data
     const result = await pool.query(
-      "SELECT id, email, role FROM profiles WHERE id = $1",
+      "SELECT id, email, role, is_banned, ban_reason FROM profiles WHERE id = $1",
       [decoded.id]
     );
 
@@ -245,7 +237,15 @@ export const refreshAccessToken = async (req, res) => {
 
     const user = result.rows[0];
 
-    // Generate new access token
+    if (user.is_banned) {
+      return res.status(403).json({
+        success: false,
+        message: "Your account has been suspended.",
+        reason: user.ban_reason,
+        code: "USER_BANNED"
+      });
+    }
+
     const newAccessToken = jwt.sign(
       {
         id: user.id,
@@ -280,17 +280,14 @@ export const refreshAccessToken = async (req, res) => {
   }
 };
 
-// Logout user
 export const logout = async (req, res) => {
   try {
     const userId = req.user?.id;
 
     if (userId) {
-      // Sign out from Supabase
       const { error } = await supabase.auth.signOut();
       if (error) console.error("Supabase logout error:", error);
 
-      // Update last logout timestamp (optional)
       await pool.query(
         "UPDATE profiles SET last_logout = NOW() WHERE id = $1",
         [userId]
@@ -311,7 +308,6 @@ export const logout = async (req, res) => {
   }
 };
 
-// Get current user profile
 export const getCurrentUser = async (req, res) => {
   try {
     const userId = req.user?.id;
@@ -362,7 +358,6 @@ export const getCurrentUser = async (req, res) => {
   }
 };
 
-// Verify email (for Supabase email verification)
 export const verifyEmail = async (req, res) => {
   try {
     const { token, type } = req.query;
@@ -374,10 +369,9 @@ export const verifyEmail = async (req, res) => {
       });
     }
 
-    // Verify token with Supabase
     const { data, error } = await supabase.auth.verifyOtp({
       token_hash: token,
-      type: type, // 'signup', 'recovery', etc.
+      type: type, 
     });
 
     if (error) {

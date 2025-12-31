@@ -57,16 +57,20 @@ export const createDayWorkSummary = async (req, res) => {
       });
     }
 
-    // Check for recent submissions (24-hour limit)
-    const recentSummaries = await DayWorkSummary.getRecentForContract(
-      contract_id,
-      24
-    );
-    if (recentSummaries.length > 0) {
-      return res.status(400).json({
-        success: false,
-        message: "You can only submit one work summary per 24-hour period",
-      });
+    const workDate = new Date(work_date);
+    const today = new Date();
+    const workDayStart = new Date(workDate.getFullYear(), workDate.getMonth(), workDate.getDate());
+    const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+
+    if (workDayStart.getTime() === todayStart.getTime()) {
+      // Check if already submitted for TODAY
+      const todaySummary = await DayWorkSummary.getByContractAndDate(contract_id, work_date);
+      if (todaySummary) {
+        return res.status(400).json({
+          success: false,
+          message: "You can only submit one work summary per calendar day",
+        });
+      }
     }
 
     // Create day work summary

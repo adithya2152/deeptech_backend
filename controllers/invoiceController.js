@@ -51,9 +51,9 @@ export const payInvoice = async (req, res) => {
       // Update invoice to paid
       const paidInvoice = await Invoice.payInvoice(invoiceId);
 
-      // Update contract escrow and total_amount
-      const newTotalAmount =
-        parseFloat(contract.total_amount || 0) + parseFloat(invoice.amount);
+      // Keep total_amount unchanged
+      const newTotalAmount = contract.total_amount;
+
       const newEscrowBalance = Math.max(
         parseFloat(contract.escrow_balance || 0) - parseFloat(invoice.amount),
         0

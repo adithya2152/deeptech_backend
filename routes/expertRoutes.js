@@ -51,6 +51,59 @@ router.get('/', expertController.searchExperts);
 
 /**
  * @swagger
+ * /api/experts/semantic-search:
+ *   post:
+ *     summary: Semantic search for experts using AI
+ *     tags:
+ *       - Experts
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - query
+ *             properties:
+ *               query:
+ *                 type: string
+ *                 description: Natural language search query
+ *               limit:
+ *                 type: integer
+ *                 default: 10
+ *                 description: Maximum number of results
+ *     responses:
+ *       200:
+ *         description: AI-powered search results
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 results:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       id:
+ *                         type: string
+ *                       name:
+ *                         type: string
+ *                       bio:
+ *                         type: string
+ *                       similarity:
+ *                         type: number
+ *                 query:
+ *                   type: string
+ *                 total:
+ *                   type: integer
+ *       500:
+ *         description: Search service unavailable
+ */
+router.post('/semantic-search', expertController.semanticSearch);
+
+/**
+ * @swagger
  * /api/experts/{id}:
  *   get:
  *     summary: Get single expert profile

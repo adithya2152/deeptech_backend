@@ -33,11 +33,11 @@ export const createProject = async (req, res) => {
       description: req.body.description,
       buyer_id: req.user.id, 
       domain: req.body.domain,
-      trl_level: req.body.trlLevel, 
-      risk_categories: req.body.riskCategories,
-      expected_outcome: req.body.expectedOutcome,
-      budget_min: req.body.budgetMin,
-      budget_max: req.body.budgetMax,
+      trl_level: req.body.trl_level, 
+      risk_categories: req.body.risk_categories,
+      expected_outcome: req.body.expected_outcome,
+      budget_min: req.body.budget_min,
+      budget_max: req.body.budge_max,
       deadline: req.body.deadline
     };
     const newProject = await projectModel.create(projectData);
@@ -57,11 +57,9 @@ export const updateProject = async (req, res) => {
     const existingProject = await projectModel.getById(id);
     if (!existingProject) return res.status(404).json({ error: 'Project not found' });
     
-    // Check ownership using the nested buyer object id or the flat buyer_id
     const ownerId = existingProject.buyer?.id || existingProject.buyer_id;
     if (ownerId !== userId) return res.status(403).json({ error: 'Unauthorized' });
 
-    // Business Logic: If project is live (not draft), only status can be updated
     if (existingProject.status !== 'draft') {
        const keys = Object.keys(updates);
        const isOnlyStatusUpdate = keys.length === 1 && keys[0] === 'status';

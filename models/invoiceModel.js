@@ -155,8 +155,11 @@ const Invoice = {
     sprintNumber
   ) => {
     // Check if invoice already exists for this sprint
-    const sourceId = `${contractId}_sprint_${sprintNumber}`;
-    const existing = await Invoice.findBySource("sprint", sourceId);
+    // Use plain contractId (uuid) as source_id
+    const sourceId = contractId;
+    const sourceType = `sprint_${sprintNumber}`;
+
+    const existing = await Invoice.findBySource(sourceType, sourceId);
     if (existing) {
       console.log(
         `Invoice already exists for sprint ${sprintNumber} of contract ${contractId}`
@@ -176,11 +179,10 @@ const Invoice = {
       invoice_type: "sprint",
       week_start_date: null,
       week_end_date: null,
-      source_type: "sprint",
+      source_type: sourceType,
       source_id: sourceId,
     });
   },
-
   // Create invoice from milestone approval
   createFromMilestone: async (
     contractId,
@@ -215,32 +217,38 @@ const Invoice = {
   createFinalFixed: async (contractData) => {
     const { contractId, expertId, buyerId, paymentTerms } = contractData;
 
-    // Check if final invoice already exists
-    const sourceId = `${contractId}_final_fixed`;
+    const sourceId = contractId;
     const existing = await Invoice.findBySource("final_fixed", sourceId);
     if (existing) {
-      console.log(
-        `Final fixed invoice already exists for contract ${contractId}`
-      );
+      console.log(`Final fixed invoice already exists for contract ${contractId}`);
       return existing;
     }
 
-    const totalAmount = paymentTerms.total_amount || 0;
+    const contractResult = await pool.query('SELECT total_amount FROM contracts WHERE id = $1', [contractId]);
+    const totalContractAmount = contractResult.rows[0]?.total_amount || paymentTerms.total_amount || 0;
+
+    const previousInvoices = await Invoice.getByContractId(contractId);
+    const totalBilledBefore = previousInvoices
+      .filter(inv => inv.status !== 'void' && inv.source_type !== 'final_fixed')
+      .reduce((sum, inv) => sum + Number(inv.amount || 0), 0);
+
+    const finalAmount = Math.max(totalContractAmount - totalBilledBefore, 0);
 
     return await Invoice.create({
       contract_id: contractId,
       expert_id: expertId,
       buyer_id: buyerId,
-      amount: totalAmount,
+      amount: finalAmount,
       total_hours: 0,
       status: "pending",
-      invoice_type: "milestone",
+      invoice_type: "final_fixed",
       week_start_date: null,
       week_end_date: null,
       source_type: "final_fixed",
       source_id: sourceId,
     });
   },
+
 };
 
 export default Invoice;

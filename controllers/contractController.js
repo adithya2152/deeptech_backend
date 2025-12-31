@@ -324,7 +324,7 @@ export const declineContract = async (req, res) => {
 
     // 2) Re-open this expert's proposal for that project (regardless of current status)
     await pool.query(
-          `
+      `
       UPDATE proposals
       SET status = 'pending', updated_at = NOW()
       WHERE project_id = $1
@@ -584,6 +584,8 @@ export const finishSprint = async (req, res) => {
       typeof paymentTerms.current_sprint_number === "number"
         ? paymentTerms.current_sprint_number
         : 1;
+        
+    const totalSprints = paymentTerms.total_sprints || 1;
 
     // Create invoice for the completed sprint
     try {
@@ -596,25 +598,30 @@ export const finishSprint = async (req, res) => {
       );
     } catch (invoiceError) {
       console.error("Sprint invoice creation error:", invoiceError);
-      // Continue with sprint advancement even if invoice fails
     }
 
-    // Advance to next sprint
-    const updatedPaymentTerms = {
-      ...paymentTerms,
-      current_sprint_number: currentSprint + 1,
-      sprint_start_date: new Date().toISOString(),
-    };
+    let updatedContract = contract;
+    
+    if (currentSprint < totalSprints) {
+        const updatedPaymentTerms = {
+          ...paymentTerms,
+          current_sprint_number: currentSprint + 1,
+          sprint_start_date: new Date().toISOString(),
+        };
 
-    const updatedContract = await Contract.updatePaymentTerms(
-      id,
-      updatedPaymentTerms
-    );
+        updatedContract = await Contract.updatePaymentTerms(
+          id,
+          updatedPaymentTerms
+        );
+    } 
+    const finalContractState = await Contract.getById(id);
 
     return res.json({
       success: true,
-      message: "Sprint finished and next sprint started",
-      data: updatedContract,
+      message: currentSprint < totalSprints 
+        ? "Sprint finished and next sprint started" 
+        : "Final sprint finished. Invoice generated.",
+      data: finalContractState,
     });
   } catch (error) {
     console.error("Finish sprint error:", error);

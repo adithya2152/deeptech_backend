@@ -6,6 +6,7 @@ const BUCKETS = {
   PROPOSALS: "proposals",
   CONTRACTS: "contracts",
   PROJECTS: "projects",
+  CHAT_FILES: "chat-files",
 };
 
 /**

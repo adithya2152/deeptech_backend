@@ -1,127 +1,470 @@
-import pool from '../config/db.js';
+import pool from "../config/db.js";
 
-export const findExistingConversation = async (participant1, participant2) => {
-  const sql = `
-    SELECT id 
-    FROM conversations 
-    WHERE (participant_1 = $1 AND participant_2 = $2)
-       OR (participant_1 = $2 AND participant_2 = $1)
-    LIMIT 1;
-  `;
-  const { rows } = await pool.query(sql, [participant1, participant2]);
-  return rows[0];
+/**
+ * Find or create a direct chat between two users
+ */
+export const findOrCreateDirectChat = async (userId1, userId2) => {
+  try {
+    // First try to find existing direct chat
+    const findSql = `
+      SELECT c.id, c.type, c.created_at
+      FROM chats c
+      JOIN chat_members cm1 ON c.id = cm1.chat_id AND cm1.user_id = $1
+      JOIN chat_members cm2 ON c.id = cm2.chat_id AND cm2.user_id = $2
+      WHERE c.type = 'direct'
+      LIMIT 1;
+    `;
+
+    const { rows: existingChat } = await pool.query(findSql, [
+      userId1,
+      userId2,
+    ]);
+
+    if (existingChat.length > 0) {
+      return existingChat[0];
+    }
+
+    // Create new direct chat
+    const createSql = `
+      INSERT INTO chats (type, created_at)
+      VALUES ('direct', NOW())
+      RETURNING id, type, created_at;
+    `;
+
+    const { rows: newChat } = await pool.query(createSql);
+    const chatId = newChat[0].id;
+
+    // Add both users to chat_members
+    const addMembersSql = `
+      INSERT INTO chat_members (chat_id, user_id, joined_at)
+      VALUES ($1, $2, NOW()), ($1, $3, NOW())
+      ON CONFLICT DO NOTHING;
+    `;
+
+    await pool.query(addMembersSql, [chatId, userId1, userId2]);
+
+    return newChat[0];
+  } catch (error) {
+    console.error("Error finding or creating direct chat:", error);
+    throw error;
+  }
 };
 
-export const createConversation = async (participant1, participant2) => {
-  const sql = `
-    INSERT INTO conversations (participant_1, participant_2, created_at, updated_at, last_message_at)
-    VALUES ($1, $2, NOW(), NOW(), NOW())
-    RETURNING id, participant_1, participant_2, created_at;
-  `;
-  const { rows } = await pool.query(sql, [participant1, participant2]);
-  return rows[0];
+/**
+ * Get all chats for a user
+ */
+export const getUserChats = async (userId) => {
+  try {
+    const sql = `
+      SELECT 
+        c.id,
+        c.type,
+        c.created_at as "createdAt",
+        (SELECT COUNT(*)::int FROM chat_members WHERE chat_id = c.id) as "memberCount",
+        (SELECT content FROM messages WHERE chat_id = c.id 
+         ORDER BY created_at DESC LIMIT 1) as "lastMessage",
+        (SELECT created_at FROM messages WHERE chat_id = c.id 
+         ORDER BY created_at DESC LIMIT 1) as "lastMessageAt",
+        json_agg(
+          json_build_object(
+            'id', p.id,
+            'name', p.first_name || ' ' || p.last_name,
+            'role', p.role,
+            'avatar_url', p.avatar_url
+          ) ORDER BY cm.joined_at
+        ) as "members"
+      FROM chats c
+      JOIN chat_members cm ON c.id = cm.chat_id
+      JOIN profiles p ON cm.user_id = p.id
+      WHERE c.id IN (
+        SELECT chat_id FROM chat_members WHERE user_id = $1
+      )
+      GROUP BY c.id
+      ORDER BY c.created_at DESC;
+    `;
+
+    const { rows } = await pool.query(sql, [userId]);
+
+    return rows.map((row) => ({
+      id: row.id,
+      type: row.type,
+      createdAt: row.createdAt,
+      memberCount: row.memberCount,
+      members: row.members,
+      lastMessage: row.lastMessage,
+      lastMessageAt: row.lastMessageAt,
+    }));
+  } catch (error) {
+    console.error("Error getting user chats:", error);
+    throw error;
+  }
+};
+/**
+ * Get messages in a chat
+ */
+export const getMessages = async (chatId) => {
+  try {
+    const sql = `
+      SELECT 
+        m.id,
+        m.chat_id as "chatId",
+        m.sender_id as "senderId",
+        m.content,
+        m.created_at as "createdAt",
+        json_agg(
+          json_build_object(
+            'id', ma.id,
+            'fileName', ma.file_name,
+            'fileSize', ma.file_size,
+            'mimeType', ma.mime_type,
+            'encryptedKey', ma.encrypted_key,
+            'createdAt', ma.created_at
+          ) ORDER BY ma.created_at
+        ) FILTER (WHERE ma.id IS NOT NULL) as "attachments"
+      FROM messages m
+      LEFT JOIN message_attachments ma ON m.id = ma.message_id
+      WHERE m.chat_id = $1
+      GROUP BY m.id, m.chat_id, m.sender_id, m.content, m.created_at
+      ORDER BY m.created_at ASC;
+    `;
+
+    const { rows } = await pool.query(sql, [chatId]);
+    return rows;
+  } catch (error) {
+    console.error("Error getting messages:", error);
+    throw error;
+  }
 };
 
-export const getConversations = async (profileId) => {
-  const sql = `
-    SELECT 
-      c.id,
-      c.last_message_at as "lastMessageAt",
-      p.id as "otherUserId",
-      p.first_name || ' ' || p.last_name as "otherUserName",
-      p.role as "otherUserRole",
-      p.avatar_url as "otherUserAvatar",
-      (SELECT content FROM messages m WHERE m.conversation_id = c.id ORDER BY m.created_at DESC LIMIT 1) as "lastMessage",
-      (SELECT COUNT(*)::int FROM messages m WHERE m.conversation_id = c.id AND m.sender_id != $1 AND m.is_read = false) as "unreadCount"
-    FROM conversations c
-    JOIN profiles p ON (CASE WHEN c.participant_1 = $1 THEN c.participant_2 ELSE c.participant_1 END) = p.id
-    WHERE c.participant_1 = $1 OR c.participant_2 = $1
-    ORDER BY c.last_message_at DESC;
-  `;
-  
-  const { rows } = await pool.query(sql, [profileId]);
-  
-  return rows.map(row => ({
-    id: row.id,
-    otherUser: {
-      id: row.otherUserId,
-      name: row.otherUserName,
-      role: row.otherUserRole,
-      avatar_url: row.otherUserAvatar 
-    },
-    lastMessage: row.lastMessage,
-    lastMessageAt: row.lastMessageAt,
-    unreadCount: row.unreadCount
-  }));
-};
-
-export const getMessages = async (conversationId) => {
-  const sql = `
-    SELECT 
-      id,
-      conversation_id as "conversationId",
-      sender_id as "senderId",
-      content,
-      created_at as "createdAt",
-      is_read as "isRead"
-    FROM messages
-    WHERE conversation_id = $1
-    ORDER BY created_at ASC
-  `;
-  const { rows } = await pool.query(sql, [conversationId]);
-  return rows;
-};
-
-export const createMessage = async (conversationId, senderId, content) => {
+/**
+ * Create a message
+ */
+export const createMessage = async (chatId, senderId, content) => {
   const client = await pool.connect();
   try {
-    await client.query('BEGIN');
+    await client.query("BEGIN");
 
-    const msgQuery = `
-      INSERT INTO messages (conversation_id, sender_id, content, created_at)
-      VALUES ($1, $2, $3, NOW())
-      RETURNING id, conversation_id as "conversationId", sender_id as "senderId", content, created_at as "createdAt"
+    // Verify user is member of chat
+    const memberCheckSql = `
+      SELECT 1 FROM chat_members 
+      WHERE chat_id = $1 AND user_id = $2;
     `;
-    const { rows: msgRows } = await client.query(msgQuery, [conversationId, senderId, content]);
 
-    await client.query(`UPDATE conversations SET last_message_at = NOW() WHERE id = $1`, [conversationId]);
+    const { rows: memberCheck } = await client.query(memberCheckSql, [
+      chatId,
+      senderId,
+    ]);
 
-    await client.query('COMMIT');
+    if (memberCheck.length === 0) {
+      throw new Error("User is not a member of this chat");
+    }
+
+    // Insert message
+    const msgSql = `
+      INSERT INTO messages (chat_id, sender_id, content, created_at)
+      VALUES ($1, $2, $3, NOW())
+      RETURNING 
+        id,
+        chat_id as "chatId",
+        sender_id as "senderId",
+        content,
+        created_at as "createdAt"
+    `;
+
+    const { rows: msgRows } = await client.query(msgSql, [
+      chatId,
+      senderId,
+      content,
+    ]);
+
+    await client.query("COMMIT");
     return msgRows[0];
-  } catch (err) {
-    await client.query('ROLLBACK');
-    throw err;
+  } catch (error) {
+    await client.query("ROLLBACK");
+    console.error("Error creating message:", error);
+    throw error;
   } finally {
     client.release();
   }
 };
 
-export const markAsRead = async (conversationId, userId) => {
-  const sql = `
-    UPDATE messages
-    SET is_read = true
-    WHERE conversation_id = $1 AND sender_id != $2
-  `;
-  await pool.query(sql, [conversationId, userId]);
+/**
+ * Get chat details with members
+ */
+export const getChatDetails = async (chatId, userId) => {
+  try {
+    const sql = `
+      SELECT 
+        c.id,
+        c.type,
+        c.created_at as "createdAt",
+        json_agg(
+          json_build_object(
+            'id', p.id,
+            'name', p.first_name || ' ' || p.last_name,
+            'role', p.role,
+            'avatar_url', p.avatar_url,
+            'joinedAt', cm.joined_at
+          ) ORDER BY cm.joined_at
+        ) as "members"
+      FROM chats c
+      JOIN chat_members cm ON c.id = cm.chat_id
+      JOIN profiles p ON cm.user_id = p.id
+      WHERE c.id = $1
+      AND c.id IN (
+        SELECT chat_id FROM chat_members WHERE user_id = $2
+      )
+      GROUP BY c.id, c.type, c.created_at;
+    `;
+
+    const { rows } = await pool.query(sql, [chatId, userId]);
+
+    if (rows.length === 0) {
+      throw new Error("Chat not found or access denied");
+    }
+
+    return rows[0];
+  } catch (error) {
+    console.error("Error getting chat details:", error);
+    throw error;
+  }
 };
 
-export const deleteConversation = async (conversationId, userId) => {
-  const sql = `
-    DELETE FROM conversations 
-    WHERE id = $1 
-    AND (participant_1 = $2 OR participant_2 = $2)
-    RETURNING id;
-  `;
-  const { rows } = await pool.query(sql, [conversationId, userId]);
-  return rows[0];
+/**
+ * Add user to chat
+ */
+export const addChatMember = async (chatId, userId) => {
+  try {
+    const sql = `
+      INSERT INTO chat_members (chat_id, user_id, joined_at)
+      VALUES ($1, $2, NOW())
+      ON CONFLICT (chat_id, user_id) DO NOTHING
+      RETURNING chat_id, user_id, joined_at;
+    `;
+
+    const { rows } = await pool.query(sql, [chatId, userId]);
+    return rows[0] || { message: "User already member of chat" };
+  } catch (error) {
+    console.error("Error adding chat member:", error);
+    throw error;
+  }
+};
+
+/**
+ * Remove user from chat
+ */
+export const removeChatMember = async (chatId, userId) => {
+  try {
+    const sql = `
+      DELETE FROM chat_members
+      WHERE chat_id = $1 AND user_id = $2
+      RETURNING chat_id, user_id;
+    `;
+
+    const { rows } = await pool.query(sql, [chatId, userId]);
+    return rows[0];
+  } catch (error) {
+    console.error("Error removing chat member:", error);
+    throw error;
+  }
+};
+
+/**
+ * Delete chat (only if user is member)
+ */
+export const deleteChat = async (chatId, userId) => {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+
+    // Verify user is member
+    const memberCheckSql = `
+      SELECT 1 FROM chat_members 
+      WHERE chat_id = $1 AND user_id = $2;
+    `;
+
+    const { rows: memberCheck } = await client.query(memberCheckSql, [
+      chatId,
+      userId,
+    ]);
+
+    if (memberCheck.length === 0) {
+      throw new Error("User is not a member of this chat");
+    }
+
+    // Delete messages and attachments
+    const deleteAttachmentsSql = `
+      DELETE FROM message_attachments
+      WHERE message_id IN (
+        SELECT id FROM messages WHERE chat_id = $1
+      );
+    `;
+    await client.query(deleteAttachmentsSql, [chatId]);
+
+    const deleteMessagesSql = `
+      DELETE FROM messages WHERE chat_id = $1;
+    `;
+    await client.query(deleteMessagesSql, [chatId]);
+
+    // Delete chat members
+    const deleteMembersSql = `
+      DELETE FROM chat_members WHERE chat_id = $1;
+    `;
+    await client.query(deleteMembersSql, [chatId]);
+
+    // Delete chat
+    const deleteChatSql = `
+      DELETE FROM chats WHERE id = $1
+      RETURNING id;
+    `;
+    const { rows } = await client.query(deleteChatSql, [chatId]);
+
+    await client.query("COMMIT");
+    return rows[0];
+  } catch (error) {
+    await client.query("ROLLBACK");
+    console.error("Error deleting chat:", error);
+    throw error;
+  } finally {
+    client.release();
+  }
+};
+
+// ============ ATTACHMENT METHODS ============
+
+/**
+ * Create message attachment record
+ */
+export const createAttachment = async (
+  messageId,
+  fileName,
+  filePath,
+  fileSize,
+  mimeType,
+  encryptedKey
+) => {
+  try {
+    const sql = `
+      INSERT INTO message_attachments (
+        message_id, 
+        file_name, 
+        file_path, 
+        file_size, 
+        mime_type, 
+        encrypted_key,
+        created_at
+      )
+      VALUES ($1, $2, $3, $4, $5, $6, NOW())
+      RETURNING 
+        id, 
+        message_id as "messageId",
+        file_name as "fileName",
+        file_path as "filePath", 
+        file_size as "fileSize",
+        mime_type as "mimeType",
+        created_at as "createdAt"
+    `;
+
+    const { rows } = await pool.query(sql, [
+      messageId,
+      fileName,
+      filePath,
+      fileSize,
+      mimeType,
+      encryptedKey,
+    ]);
+    return rows[0];
+  } catch (error) {
+    console.error("Error creating attachment:", error);
+    throw error;
+  }
+};
+
+/**
+ * Get attachments for a message
+ */
+export const getAttachmentsByMessageId = async (messageId) => {
+  try {
+    const sql = `
+      SELECT 
+        id,
+        message_id as "messageId",
+        file_name as "fileName",
+        file_path as "filePath",
+        file_size as "fileSize",
+        mime_type as "mimeType",
+        encrypted_key as "encryptedKey",
+        created_at as "createdAt"
+      FROM message_attachments
+      WHERE message_id = $1
+      ORDER BY created_at ASC
+    `;
+
+    const { rows } = await pool.query(sql, [messageId]);
+    return rows;
+  } catch (error) {
+    console.error("Error getting attachments:", error);
+    throw error;
+  }
+};
+
+/**
+ * Get attachment by ID
+ */
+export const getAttachmentById = async (attachmentId) => {
+  try {
+    const sql = `
+      SELECT 
+        id,
+        message_id as "messageId",
+        file_name as "fileName",
+        file_path as "filePath",
+        file_size as "fileSize",
+        mime_type as "mimeType",
+        encrypted_key as "encryptedKey",
+        created_at as "createdAt"
+      FROM message_attachments
+      WHERE id = $1
+    `;
+
+    const { rows } = await pool.query(sql, [attachmentId]);
+    return rows[0];
+  } catch (error) {
+    console.error("Error getting attachment:", error);
+    throw error;
+  }
+};
+
+/**
+ * Delete attachment
+ */
+export const deleteAttachment = async (attachmentId) => {
+  try {
+    const sql = `
+      DELETE FROM message_attachments
+      WHERE id = $1
+      RETURNING id, file_path as "filePath"
+    `;
+
+    const { rows } = await pool.query(sql, [attachmentId]);
+    return rows[0];
+  } catch (error) {
+    console.error("Error deleting attachment:", error);
+    throw error;
+  }
 };
 
 export default {
-  getConversations,
+  findOrCreateDirectChat,
+  getUserChats,
   getMessages,
   createMessage,
-  markAsRead,
-  findExistingConversation,
-  createConversation,
-  deleteConversation
+  getChatDetails,
+  addChatMember,
+  removeChatMember,
+  deleteChat,
+  createAttachment,
+  getAttachmentsByMessageId,
+  getAttachmentById,
+  deleteAttachment,
 };

@@ -97,6 +97,107 @@ const Expert = {
     `;
     const { rows } = await pool.query(query, [id]);
     return rows[0];
+  },
+
+  // ========== SEMANTIC SEARCH METHODS ==========
+
+  /**
+   * Get experts that need embeddings generated
+   * Returns experts with no embedding or stale embeddings
+   */
+  getExpertsNeedingEmbedding: async () => {
+    const sql = `
+      SELECT 
+        e.id,
+        p.first_name || ' ' || p.last_name as name,
+        e.experience_summary as bio,
+        e.skills,
+        e.domains,
+        e.expertise_areas,
+        e.embedding_updated_at,
+        e.updated_at
+      FROM experts e
+      JOIN profiles p ON e.id = p.id
+      WHERE e.embedding IS NULL 
+         OR e.embedding_updated_at IS NULL
+         OR e.embedding_updated_at < e.updated_at
+      ORDER BY e.created_at ASC
+    `;
+    const { rows } = await pool.query(sql);
+    return rows;
+  },
+
+  /**
+   * Update expert embedding
+   * @param {string} expertId - Expert ID
+   * @param {number[]} embedding - 384-dimensional vector
+   * @param {string} text - The text that was embedded
+   */
+  updateEmbedding: async (expertId, embedding, text) => {
+    const sql = `
+      UPDATE experts 
+      SET 
+        embedding = $1::vector,
+        embedding_text = $2,
+        embedding_updated_at = NOW()
+      WHERE id = $3
+      RETURNING id, embedding_updated_at
+    `;
+    
+    // Convert array to PostgreSQL vector format
+    const vectorString = `[${embedding.join(',').slice(0, 10000)}]`;
+    
+    const { rows } = await pool.query(sql, [
+      vectorString,
+      text,
+      expertId
+    ]);
+    return rows[0];
+  },
+
+  /**
+   * Get all experts with embeddings (for semantic search)
+   */
+  getAllWithEmbeddings: async () => {
+    const sql = `
+      SELECT 
+        e.id,
+        p.first_name || ' ' || p.last_name as name,
+        e.experience_summary as bio,
+        e.skills,
+        e.domains,
+        e.embedding,
+        e.hourly_rate_advisory as hourly_rate,
+        e.availability,
+        e.vetting_status,
+        e.rating,
+        e.total_hours
+      FROM experts e
+      JOIN profiles p ON e.id = p.id
+      WHERE e.embedding IS NOT NULL
+        AND p.role = 'expert'
+    `;
+    const { rows } = await pool.query(sql);
+    return rows;
+  },
+
+  /**
+   * Get expert with full details (including embedding)
+   */
+  getById: async (id) => {
+    const sql = `
+      SELECT 
+        e.*,
+        p.first_name,
+        p.last_name,
+        p.email,
+        p.role
+      FROM experts e
+      JOIN profiles p ON e.id = p.id
+      WHERE e.id = $1
+    `;
+    const { rows } = await pool.query(sql, [id]);
+    return rows[0];
   }
 };
 

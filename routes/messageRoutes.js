@@ -1,33 +1,40 @@
-import express from 'express';
-import messageController from '../controllers/messageController.js';
-import { auth } from '../middleware/auth.js';
+import express from "express";
+import messageController from "../controllers/messageController.js";
+import { auth } from "../middleware/auth.js";
+import multer from "multer";
 
 const router = express.Router();
+
+// Configure multer for file uploads
+const upload = multer({
+  limits: { fileSize: 50 * 1024 * 1024 }, // 50MB limit
+  storage: multer.memoryStorage(),
+});
 
 /**
  * @swagger
  * tags:
  *   - name: Messages
- *     description: Chat and conversation management
+ *     description: Chat and messaging
  */
 
 /**
  * @swagger
- * /api/conversations:
+ * /api/chats:
  *   get:
- *     summary: Get all conversations for current user
+ *     summary: Get all chats for current user
  *     tags: [Messages]
  *     responses:
  *       200:
- *         description: List of conversations
+ *         description: List of chats
  */
-router.get('/', auth, messageController.getConversations);
+router.get("/", auth, messageController.getUserChats);
 
 /**
  * @swagger
- * /api/conversations/start:
+ * /api/chats/start:
  *   post:
- *     summary: Start or get a conversation with a specific user
+ *     summary: Start or get a direct chat with a user
  *     tags: [Messages]
  *     requestBody:
  *       required: true
@@ -40,44 +47,57 @@ router.get('/', auth, messageController.getConversations);
  *             properties:
  *               participantId:
  *                 type: string
- *                 description: The ID of the user (Expert/Buyer) to chat with
  *     responses:
  *       200:
- *         description: Conversation object
- *       400:
- *         description: Cannot start chat with yourself
- *       500:
- *         description: Server error
+ *         description: Chat object
  */
-router.post('/start', auth, messageController.startConversation);
+router.post("/start", auth, messageController.startDirectChat);
 
 /**
  * @swagger
- * /api/conversations/{id}/messages:
+ * /api/chats/{chatId}:
  *   get:
- *     summary: Get all messages in a conversation
+ *     summary: Get chat details
  *     tags: [Messages]
  *     parameters:
  *       - in: path
- *         name: id
+ *         name: chatId
  *         required: true
  *         schema:
  *           type: string
  *     responses:
  *       200:
- *         description: List of messages
+ *         description: Chat details with members
  */
-router.get('/:id/messages', auth, messageController.getMessages);
+router.get("/:chatId", auth, messageController.getChatDetails);
 
 /**
  * @swagger
- * /api/conversations/{id}/messages:
- *   post:
- *     summary: Send a message
+ * /api/chats/{chatId}/messages:
+ *   get:
+ *     summary: Get all messages in a chat
  *     tags: [Messages]
  *     parameters:
  *       - in: path
- *         name: id
+ *         name: chatId
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: List of messages with attachments
+ */
+router.get("/:chatId/messages", auth, messageController.getMessages);
+
+/**
+ * @swagger
+ * /api/chats/{chatId}/messages:
+ *   post:
+ *     summary: Send a message to chat
+ *     tags: [Messages]
+ *     parameters:
+ *       - in: path
+ *         name: chatId
  *         required: true
  *         schema:
  *           type: string
@@ -94,47 +114,165 @@ router.get('/:id/messages', auth, messageController.getMessages);
  *                 type: string
  *     responses:
  *       201:
- *         description: Message sent
+ *         description: Message created
  */
-router.post('/:id/messages', auth, messageController.sendMessage);
+router.post("/:chatId/messages", auth, messageController.sendMessage);
 
 /**
  * @swagger
- * /api/conversations/{id}/read:
- *   patch:
- *     summary: Mark conversation as read
+ * /api/chats/{chatId}/members:
+ *   post:
+ *     summary: Add user to chat
  *     tags: [Messages]
  *     parameters:
  *       - in: path
- *         name: id
+ *         name: chatId
+ *         required: true
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - userId
+ *             properties:
+ *               userId:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Member added
+ */
+router.post("/:chatId/members", auth, messageController.addChatMember);
+
+/**
+ * @swagger
+ * /api/chats/{chatId}/members:
+ *   delete:
+ *     summary: Remove user from chat
+ *     tags: [Messages]
+ *     parameters:
+ *       - in: path
+ *         name: chatId
+ *         required: true
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - userId
+ *             properties:
+ *               userId:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Member removed
+ */
+router.delete("/:chatId/members", auth, messageController.removeChatMember);
+
+/**
+ * @swagger
+ * /api/chats/{chatId}:
+ *   delete:
+ *     summary: Delete a chat
+ *     tags: [Messages]
+ *     parameters:
+ *       - in: path
+ *         name: chatId
  *         required: true
  *         schema:
  *           type: string
  *     responses:
  *       200:
- *         description: Conversation marked as read
+ *         description: Chat deleted successfully
  */
-router.patch('/:id/read', auth, messageController.markAsRead);
+router.delete("/:chatId", auth, messageController.deleteChat);
 
 /**
  * @swagger
- * /api/conversations/{id}:
- * delete:
- * summary: Delete a conversation
- * tags: [Messages]
- * parameters:
- * - in: path
- * name: id
- * required: true
- * schema:
- * type: string
- * responses:
- * 200:
- * description: Conversation deleted successfully
- * 404:
- * description: Conversation not found or access denied
+ * /api/chats/{chatId}/attachments:
+ *   post:
+ *     summary: Upload file attachment to chat
+ *     tags: [Messages]
+ *     parameters:
+ *       - in: path
+ *         name: chatId
+ *         required: true
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - file
+ *             properties:
+ *               file:
+ *                 type: string
+ *                 format: binary
+ *               encryptionKey:
+ *                 type: string
+ *     responses:
+ *       201:
+ *         description: File uploaded successfully
  */
-// ✅ NEW: Added Delete Route
-router.delete('/:id', auth, messageController.deleteConversation);
+router.post(
+  "/:chatId/attachments",
+  auth,
+  upload.single("file"),
+  messageController.uploadFileAttachment
+);
+
+/**
+ * @swagger
+ * /api/attachments/{attachmentId}:
+ *   get:
+ *     summary: Download file attachment
+ *     tags: [Messages]
+ *     parameters:
+ *       - in: path
+ *         name: attachmentId
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: File downloaded successfully
+ */
+router.get(
+  "/attachments/:attachmentId",
+  auth,
+  messageController.downloadAttachment
+);
+
+/**
+ * @swagger
+ * /api/attachments/{attachmentId}:
+ *   delete:
+ *     summary: Delete file attachment
+ *     tags: [Messages]
+ *     parameters:
+ *       - in: path
+ *         name: attachmentId
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Attachment deleted successfully
+ */
+router.delete(
+  "/attachments/:attachmentId",
+  auth,
+  messageController.deleteAttachment
+);
 
 export default router;
