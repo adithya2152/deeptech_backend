@@ -81,12 +81,24 @@ const Contract = {
     return rows[0];
   },
 
+  updateNda: async (contract_id, nda_custom_content, nda_status) => {
+    const query = `
+      UPDATE contracts 
+      SET nda_custom_content = $2, nda_status = $3, updated_at = NOW()
+      WHERE id = $1
+      RETURNING *;
+    `;
+    const { rows } = await pool.query(query, [contract_id, nda_custom_content, nda_status]);
+    return rows[0];
+  },
+
   // Sign NDA and activate contract
   signNdaAndActivate: async (contract_id, signature_name, ip_address) => {
     const query = `
       UPDATE contracts 
       SET 
         status = 'active',
+        nda_status = 'signed',
         nda_signed_at = NOW(),
         nda_signature_name = $1,
         nda_ip_address = $2

@@ -2,7 +2,7 @@ import pool from '../config/db.js';
 
 const Expert = {
   searchExperts: async (filters) => {
-    const { domain, queryText, rateMin, rateMax, onlyVerified } = filters;
+    const { domain, queryText, rateMin, rateMax, onlyVerified = true } = filters;
 
     let sql = `
       SELECT 
@@ -11,22 +11,27 @@ const Expert = {
         p.last_name,
         p.first_name || ' ' || p.last_name as name,
         p.email,
+        p.avatar_url,
         e.experience_summary,
         e.experience_summary as "bio",
-        e.experience_summary as "experienceSummary",
         e.domains,
-        json_build_object(
-          'advisory', e.hourly_rate_advisory,
-          'architectureReview', e.hourly_rate_architecture,
-          'handsOnExecution', e.hourly_rate_execution
-        ) as "hourlyRates",
         e.vetting_status as "vettingStatus",
         e.vetting_level as "vettingLevel",
+        e.expert_status,
+        e.is_profile_complete,
         e.rating,
         e.review_count as "reviewCount",
         e.total_hours as "totalHours",
         e.skills,
-        e.expertise_areas
+        e.expertise_areas,
+        e.years_experience,
+        e.languages,
+        e.preferred_engagement_mode,
+        e.profile_video_url,
+        e.avg_daily_rate,
+        e.avg_fixed_rate,
+        e.avg_sprint_rate,
+        e.response_time_hours
       FROM profiles p
       JOIN experts e ON p.id = e.id
       WHERE p.role = 'expert'
@@ -35,6 +40,10 @@ const Expert = {
     const params = [];
     let paramIndex = 1;
 
+    if (onlyVerified === 'true' || onlyVerified === true) {
+      sql += ` AND e.expert_status = 'verified'`;
+    }
+
     if (domain) {
       sql += ` AND e.domains @> $${paramIndex}::text[]`;
       params.push(`{${domain}}`);
@@ -42,23 +51,19 @@ const Expert = {
     }
 
     if (queryText) {
-      sql += ` AND (p.first_name ILIKE $${paramIndex} OR e.experience_summary ILIKE $${paramIndex})`;
+      sql += ` AND (p.first_name ILIKE $${paramIndex} OR e.experience_summary ILIKE $${paramIndex} OR array_to_string(e.skills, ',') ILIKE $${paramIndex})`;
       params.push(`%${queryText}%`);
       paramIndex++;
     }
 
-    if (onlyVerified === 'true') {
-      sql += ` AND e.vetting_status = 'approved'`;
-    }
-
     if (rateMin) {
-      sql += ` AND e.hourly_rate_advisory >= $${paramIndex}`;
+      sql += ` AND e.avg_daily_rate >= $${paramIndex}`;
       params.push(rateMin);
       paramIndex++;
     }
 
     if (rateMax) {
-      sql += ` AND e.hourly_rate_advisory <= $${paramIndex}`;
+      sql += ` AND e.avg_daily_rate <= $${paramIndex}`;
       params.push(rateMax);
       paramIndex++;
     }
@@ -76,20 +81,14 @@ const Expert = {
         p.first_name || ' ' || p.last_name as name,
         p.email,
         p.role,
+        p.avatar_url,
         e.experience_summary,
         e.experience_summary as "bio",
-        e.experience_summary as "experienceSummary",
         COALESCE(e.domains, '{}') as domains,
-        json_build_object(
-          'advisory', COALESCE(e.hourly_rate_advisory, 0),
-          'architectureReview', COALESCE(e.hourly_rate_architecture, 0),
-          'handsOnExecution', COALESCE(e.hourly_rate_execution, 0)
-        ) as "hourlyRates",
-        e.hourly_rate_advisory,
-        e.hourly_rate_architecture,
-        e.hourly_rate_execution,
         COALESCE(e.vetting_status, 'pending') as "vettingStatus",
         e.vetting_level as "vettingLevel",
+        e.expert_status,
+        e.is_profile_complete,
         COALESCE(e.rating, 0) as rating,
         COALESCE(e.review_count, 0) as "reviewCount",
         e.availability,
@@ -97,7 +96,18 @@ const Expert = {
         COALESCE(e.papers, '{}') as papers,
         COALESCE(e.products, '{}') as products,
         COALESCE(e.skills, '{}') as skills,
-        COALESCE(e.expertise_areas, '{}') as expertise_areas
+        COALESCE(e.expertise_areas, '{}') as expertise_areas,
+        e.years_experience,
+        e.languages,
+        e.profile_video_url,
+        e.preferred_engagement_mode,
+        e.avg_daily_rate,
+        e.avg_fixed_rate,
+        e.avg_sprint_rate,
+        e.response_time_hours,
+        e.admin_notes,
+        e.profile_reviewed_at,
+        e.profile_updated_at
       FROM profiles p
       LEFT JOIN experts e ON p.id = e.id
       WHERE p.id = $1
@@ -106,7 +116,47 @@ const Expert = {
     return rows[0];
   },
 
-  // ========== SEMANTIC SEARCH METHODS ==========
+  updateExpertById: async (id, data) => {
+    const sql = `
+    UPDATE experts
+      SET
+        experience_summary = $1,
+        domains = $2,
+        avg_daily_rate = $3,
+        avg_sprint_rate = $4,
+        avg_fixed_rate = $5,
+        preferred_engagement_mode = $6,
+        years_experience = $7,
+        languages = $8,
+        profile_video_url = $9,
+        skills = $10,
+        is_profile_complete = $11,
+        expert_status = $12,
+        updated_at = NOW(),
+        profile_updated_at = NOW()
+      WHERE id = $13
+      RETURNING *
+    `;
+
+    const values = [
+      data.experience_summary ?? null,
+      data.domains ?? [],
+      data.avg_daily_rate ?? null,
+      data.avg_sprint_rate ?? null,
+      data.avg_fixed_rate ?? null,
+      data.preferred_engagement_mode ?? null,
+      data.years_experience ?? null,
+      data.languages ?? [],
+      data.profile_video_url ?? null,
+      data.skills ?? [],
+      data.is_profile_complete ?? false,
+      data.expert_status ?? 'incomplete',
+      id
+    ];
+
+    const { rows } = await pool.query(sql, values);
+    return rows[0];
+  },
 
   getExpertsNeedingEmbedding: async () => {
     const sql = `
@@ -140,9 +190,9 @@ const Expert = {
       WHERE id = $3
       RETURNING id, embedding_updated_at
     `;
-    
+
     const vectorString = `[${embedding.join(',').slice(0, 10000)}]`;
-    
+
     const { rows } = await pool.query(sql, [
       vectorString,
       text,
@@ -160,7 +210,7 @@ const Expert = {
         e.skills,
         e.domains,
         e.embedding,
-        e.hourly_rate_advisory as hourly_rate,
+        e.avg_daily_rate,
         e.availability,
         e.vetting_status,
         e.rating,
@@ -181,7 +231,8 @@ const Expert = {
         p.first_name,
         p.last_name,
         p.email,
-        p.role
+        p.role,
+        p.avatar_url
       FROM experts e
       JOIN profiles p ON e.id = p.id
       WHERE e.id = $1

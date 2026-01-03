@@ -8,6 +8,7 @@ import {
   refreshAccessToken,
   getCurrentUser,
   verifyEmail,
+  updateCurrentUser
 } from "../controllers/authController.js";
 
 const router = express.Router();
@@ -71,5 +72,7 @@ router.post("/logout", auth, logout);
 router.get("/me", auth, getCurrentUser);
 
 router.post("/verify-email", verifyEmail);
+
+router.patch("/me", auth, updateCurrentUser);
 
 export default router;

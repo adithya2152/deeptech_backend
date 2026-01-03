@@ -379,6 +379,45 @@ export const getCurrentUser = async (req, res) => {
   }
 };
 
+export const updateCurrentUser = async (req, res) => {
+  try {
+    const userId = req.user?.id;
+
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        message: "Unauthorized",
+      });
+    }
+
+    const { first_name, last_name } = req.body;
+
+    const result = await pool.query(
+      `
+      UPDATE profiles
+      SET
+        first_name = COALESCE($1, first_name),
+        last_name  = COALESCE($2, last_name),
+        updated_at = NOW()
+      WHERE id = $3
+      RETURNING id, email, first_name, last_name, role, created_at
+      `,
+      [first_name, last_name, userId]
+    );
+
+    return res.status(200).json({
+      success: true,
+      data: result.rows[0],
+    });
+  } catch (error) {
+    console.error("Update current user error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to update profile",
+    });
+  }
+};
+
 export const verifyEmail = async (req, res) => {
   try {
     const { token, type } = req.query;

@@ -23,6 +23,13 @@ router.post(
   contractController.acceptAndSignNda
 );
 
+router.patch(
+  "/:contractId/nda",
+  auth,
+  requireRole("buyer"),
+  contractController.updateNda
+);
+
 // Get all contracts for current user
 router.get("/", auth, contractController.getMyContracts);
 

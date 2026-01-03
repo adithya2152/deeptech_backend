@@ -1,4 +1,6 @@
 import expertModel from '../models/expertModel.js';
+import { supabase } from '../config/supabase.js';
+import pool from '../config/db.js';
 
 export const searchExperts = async (req, res) => {
   try {
@@ -39,7 +41,7 @@ export const semanticSearch = async (req, res) => {
     }
 
     const searchResults = await callSemanticSearchService(query, limit);
-    
+
     const resultsArray = Array.isArray(searchResults?.results)
       ? searchResults.results
       : [];
@@ -54,17 +56,23 @@ export const semanticSearch = async (req, res) => {
       domains: expert.domains || [],
       skills: expert.skills || [],
 
-      hourly_rate_advisory: expert.hourly_rates?.advisory ?? null,
-      hourly_rate_architecture: expert.hourly_rates?.architecture_review ?? null,
-      hourly_rate_execution: expert.hourly_rates?.hands_on_execution ?? null,
+      avg_daily_rate: expert.avg_daily_rate ?? null,
+      avg_fixed_rate: expert.avg_fixed_rate ?? null,
+      avg_sprint_rate: expert.avg_sprint_rate ?? null,
 
       vetting_status: expert.vetting_status,
       vetting_level: expert.vetting_level ?? null,
+      expert_status: expert.expert_status,
 
       rating: expert.rating,
       review_count: expert.review_count,
       total_hours: expert.total_hours,
       availability: expert.availability,
+
+      years_experience: expert.years_experience,
+      languages: expert.languages,
+      profile_video_url: expert.profile_video_url,
+      preferred_engagement_mode: expert.preferred_engagement_mode
     }));
 
 
@@ -99,7 +107,89 @@ export const getExpertById = async (req, res) => {
   }
 };
 
-// Helper function to call Python semantic search service
+export const updateExpertProfile = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    if (!req.user || req.user.id !== id) {
+      return res.status(403).json({
+        success: false,
+        message: 'Unauthorized',
+      });
+    }
+
+    const updatedExpert = await expertModel.updateExpertById(id, req.body);
+
+    if (!updatedExpert) {
+      return res.status(404).json({
+        success: false,
+        message: 'Expert not found',
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      data: updatedExpert,
+    });
+  } catch (error) {
+    console.error('UPDATE EXPERT ERROR:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to update expert profile',
+    });
+  }
+};
+
+export const uploadExpertDocument = async (req, res) => {
+  if (!req.user?.id) {
+    return res.status(401).json({ message: 'Unauthorized' });
+  }
+  
+  const { type, title, url } = req.body;
+  const file = req.file;
+
+  const columnMap = {
+    patent: 'patents',
+    paper: 'papers',
+    product: 'products',
+  };
+
+  const column = columnMap[type];
+  if (!column) {
+    return res.status(400).json({ message: 'Invalid document type' });
+  }
+
+  let valueToStore;
+
+  if (type === 'product') {
+    if (!url) return res.status(400).json({ message: 'URL required' });
+    valueToStore = url;
+  } else {
+    if (!file) return res.status(400).json({ message: 'File required' });
+
+    const filePath = `experts/${req.user.id}/${Date.now()}-${file.originalname}`;
+
+    const { error } = await supabase.storage
+      .from('expert-documents')
+      .upload(filePath, file.buffer, {
+        contentType: file.mimetype,
+      });
+
+    if (error) return res.status(500).json({ error: error.message });
+
+    valueToStore = supabase.storage
+      .from('expert-documents')
+      .getPublicUrl(filePath).data.publicUrl;
+  }
+
+  await pool.query(
+    `UPDATE experts SET ${column} = array_append(${column}, $1) WHERE id = $2`,
+    [valueToStore, req.user.id]
+  );
+
+  res.json({ success: true });
+};
+
 async function callSemanticSearchService(query, limit) {
   const PYTHON_SERVICE_URL =
     process.env.PYTHON_SEMANTIC_SEARCH_URL || 'http://127.0.0.1:8000';
@@ -122,5 +212,7 @@ async function callSemanticSearchService(query, limit) {
 export default {
   searchExperts,
   semanticSearch,
-  getExpertById
+  getExpertById,
+  updateExpertProfile,
+  uploadExpertDocument
 };
