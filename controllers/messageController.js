@@ -172,7 +172,7 @@ const uploadFileAttachment = async (req, res) => {
     const encryptionKey = req.body.encryptionKey || generateEncryptionKey();
 
     // Encrypt the file
-    const encryptedFileBuffer = encryptFile(file.buffer, encryptionKey);
+    const encryptedFileBuffer = await encryptFile(file.buffer, encryptionKey);
 
     // Upload encrypted file to Supabase
     const timestamp = Date.now();
@@ -238,10 +238,7 @@ const downloadAttachment = async (req, res) => {
     }
 
     // Decrypt the file
-    const decryptedBuffer = decryptFile(
-      Buffer.from(await encryptedBuffer.arrayBuffer()),
-      attachment.encryptedKey
-    );
+    const decryptedBuffer = await decryptFile(Buffer.from(await encryptedBuffer.arrayBuffer()), attachment.encryptedKey);
 
     // Send file to client
     res.setHeader("Content-Type", attachment.mimeType);
