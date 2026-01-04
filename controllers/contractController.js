@@ -69,7 +69,7 @@ export const createContract = async (req, res) => {
       });
     }
 
-    
+
     // Check if a non-final contract already exists for this project + expert
     const existingContract =
       await Contract.findActiveOrPendingForPair(project_id, expert_id);
@@ -192,6 +192,37 @@ export const acceptAndSignNda = async (req, res) => {
       message: "Failed to accept contract and sign NDA",
       error: error.message,
     });
+  }
+};
+
+export const updateNda = async (req, res) => {
+  try {
+    const { contractId } = req.params;
+    const { nda_custom_content, nda_status } = req.body;
+    const userId = req.user.id;
+
+    const contract = await Contract.getById(contractId);
+    if (!contract) {
+      return res.status(404).json({ success: false, message: "Contract not found" });
+    }
+
+    if (contract.buyer_id !== userId) {
+      return res.status(403).json({ success: false, message: "Unauthorized" });
+    }
+
+    if (contract.nda_status === "signed") {
+      return res.status(400).json({ message: "NDA already signed" });
+    }
+
+    const updated = await Contract.updateNda(
+      contractId,
+      nda_custom_content,
+      nda_status || "sent"
+    );
+
+    res.json({ success: true, data: updated });
+  } catch (e) {
+    res.status(500).json({ success: false, message: e.message });
   }
 };
 
@@ -584,7 +615,7 @@ export const finishSprint = async (req, res) => {
       typeof paymentTerms.current_sprint_number === "number"
         ? paymentTerms.current_sprint_number
         : 1;
-        
+
     const totalSprints = paymentTerms.total_sprints || 1;
 
     // Create invoice for the completed sprint
@@ -601,25 +632,25 @@ export const finishSprint = async (req, res) => {
     }
 
     let updatedContract = contract;
-    
-    if (currentSprint < totalSprints) {
-        const updatedPaymentTerms = {
-          ...paymentTerms,
-          current_sprint_number: currentSprint + 1,
-          sprint_start_date: new Date().toISOString(),
-        };
 
-        updatedContract = await Contract.updatePaymentTerms(
-          id,
-          updatedPaymentTerms
-        );
-    } 
+    if (currentSprint < totalSprints) {
+      const updatedPaymentTerms = {
+        ...paymentTerms,
+        current_sprint_number: currentSprint + 1,
+        sprint_start_date: new Date().toISOString(),
+      };
+
+      updatedContract = await Contract.updatePaymentTerms(
+        id,
+        updatedPaymentTerms
+      );
+    }
     const finalContractState = await Contract.getById(id);
 
     return res.json({
       success: true,
-      message: currentSprint < totalSprints 
-        ? "Sprint finished and next sprint started" 
+      message: currentSprint < totalSprints
+        ? "Sprint finished and next sprint started"
         : "Final sprint finished. Invoice generated.",
       data: finalContractState,
     });

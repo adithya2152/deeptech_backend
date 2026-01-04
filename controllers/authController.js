@@ -1,5 +1,4 @@
 import jwt from "jsonwebtoken";
-import bcryptjs from "bcryptjs";
 import { supabase } from "../config/supabase.js";
 import pool from "../config/db.js";
 
@@ -32,16 +31,81 @@ const generateTokens = (userId, email, role = "buyer") => {
   return { accessToken, refreshToken };
 };
 
-export const signup = async (req, res) => {
+export const sendEmailOtp = async (req, res) => {
   try {
-    const { email, password, first_name, last_name, role = "buyer", domains = [] } = req.body;
-    console.log('📥 RECEIVED:', { email, first_name, last_name, role, domains });
+    const { email } = req.body;
+    if (!email) return res.status(400).json({ success: false, message: "Email is required" });
 
-    if (!email || !password) {
-      return res.status(400).json({
-        success: false,
-        message: "Email and password are required",
-      });
+    const existingProfile = await pool.query("SELECT id FROM profiles WHERE email = $1", [email]);
+    if (existingProfile.rows.length > 0) {
+      return res.status(409).json({ success: false, message: "User already exists. Please login." });
+    }
+
+    const { error } = await supabase.auth.signInWithOtp({
+      email,
+      options: { shouldCreateUser: true },
+    });
+
+    if (error) throw error;
+
+    return res.status(200).json({ success: true, message: `OTP sent to ${email}` });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+export const verifyEmailOtp = async (req, res) => {
+  try {
+    const { email, otp } = req.body;
+    if (!email || !otp) {
+      return res.status(400).json({ success: false, message: "Email and OTP are required" });
+    }
+
+    const { data, error } = await supabase.auth.verifyOtp({
+      email,
+      token: otp,
+      type: "email",
+    });
+
+    if (error) throw error;
+
+    const signupTicket = jwt.sign(
+      { 
+        email, 
+        userId: data.user.id,
+        type: "signup_ticket" 
+      },
+      jwtSecret,
+      { expiresIn: "15m" }
+    );
+
+    return res.status(200).json({
+      success: true,
+      message: "Email verified successfully",
+      data: { signupTicket }
+    });
+  } catch (error) {
+    return res.status(400).json({ success: false, message: "Invalid or expired OTP" });
+  }
+};
+
+export const register = async (req, res) => {
+  try {
+    const { email, password, first_name, last_name, role = "buyer", domains = [], phone, signupTicket } = req.body;
+
+    if (!email || !password || !signupTicket) {
+      return res.status(400).json({ success: false, message: "Missing required fields" });
+    }
+
+    let userId;
+    try {
+        const decoded = jwt.verify(signupTicket, jwtSecret);
+        if (decoded.type !== "signup_ticket" || decoded.email !== email) {
+            throw new Error("Invalid ticket");
+        }
+        userId = decoded.userId;
+    } catch (e) {
+        return res.status(401).json({ success: false, message: "Invalid or expired verification session" });
     }
 
     if (password.length < 6) {
@@ -63,27 +127,17 @@ export const signup = async (req, res) => {
       });
     }
 
-    const hashedPassword = await bcryptjs.hash(password, 10);
-
-    const { data: authData, error: authError } = await supabase.auth.signUp({
-      email,
-      password,
+    const { error: updateError } = await supabase.auth.admin.updateUserById(userId, {
+      password: password,
+      user_metadata: { first_name, last_name, role, phone }
     });
 
-    if (authError) {
-      console.error("Supabase signup error:", authError);
-      return res.status(400).json({
-        success: false,
-        message: authError.message || "Failed to create user",
-      });
-    }
-
-    const userId = authData.user.id;
+    if (updateError) throw updateError;
 
     const result = await pool.query(
       `INSERT INTO profiles (id, email, first_name, last_name, role, created_at, updated_at)
-      VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
-      RETURNING id, email, first_name, last_name, role`,
+       VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
+       RETURNING id, email, first_name, last_name, role`,
       [userId, email, first_name || "", last_name || "", role]
     );
 
@@ -106,7 +160,6 @@ export const signup = async (req, res) => {
           50, 75, 100
         ]
       );
-      console.log(`✅ Created expert profile for ${email} with domains: ${expertDomains.join(', ')}`);
     }
 
     const { accessToken, refreshToken } = generateTokens(userId, email, role);
@@ -129,7 +182,6 @@ export const signup = async (req, res) => {
       },
     });
   } catch (error) {
-    console.error("Signup error:", error);
     return res.status(500).json({
       success: false,
       message: "Internal server error",
@@ -165,7 +217,7 @@ export const login = async (req, res) => {
     const userId = authData.user.id;
 
     const result = await pool.query(
-      "SELECT id, email, first_name, last_name, role, is_banned, ban_reason FROM profiles WHERE id = $1",
+      "SELECT id, email, first_name, last_name, role, avatar_url, is_banned, ban_reason FROM profiles WHERE id = $1",
       [userId]
     );
 
@@ -207,6 +259,7 @@ export const login = async (req, res) => {
           first_name: user.first_name,
           last_name: user.last_name,
           role: user.role,
+          avatar_url: user.avatar_url,
         },
         tokens: {
           accessToken,
@@ -215,7 +268,6 @@ export const login = async (req, res) => {
       },
     });
   } catch (error) {
-    console.error("Login error:", error);
     return res.status(500).json({
       success: false,
       message: "Internal server error",
@@ -293,7 +345,6 @@ export const refreshAccessToken = async (req, res) => {
       });
     }
 
-    console.error("Token refresh error:", error);
     return res.status(401).json({
       success: false,
       message: "Invalid refresh token",
@@ -320,7 +371,6 @@ export const logout = async (req, res) => {
       message: "Logout successful",
     });
   } catch (error) {
-    console.error("Logout error:", error);
     return res.status(500).json({
       success: false,
       message: "Logout failed",
@@ -341,7 +391,7 @@ export const getCurrentUser = async (req, res) => {
     }
 
     const result = await pool.query(
-      `SELECT id, email, first_name, last_name, role, created_at, last_login 
+      `SELECT id, email, first_name, last_name, role, avatar_url, created_at, last_login 
        FROM profiles WHERE id = $1`,
       [userId]
     );
@@ -364,13 +414,13 @@ export const getCurrentUser = async (req, res) => {
           first_name: user.first_name,
           last_name: user.last_name,
           role: user.role,
+          avatar_url: user.avatar_url,
           created_at: user.created_at,
           last_login: user.last_login,
         },
       },
     });
   } catch (error) {
-    console.error("Get current user error:", error);
     return res.status(500).json({
       success: false,
       message: "Internal server error",
@@ -379,41 +429,46 @@ export const getCurrentUser = async (req, res) => {
   }
 };
 
-export const verifyEmail = async (req, res) => {
+export const updateCurrentUser = async (req, res) => {
   try {
-    const { token, type } = req.query;
+    const userId = req.user?.id;
 
-    if (!token || !type) {
-      return res.status(400).json({
+    if (!userId) {
+      return res.status(401).json({
         success: false,
-        message: "Verification token and type are required",
+        message: "Unauthorized",
       });
     }
 
-    const { data, error } = await supabase.auth.verifyOtp({
-      token_hash: token,
-      type: type,
-    });
+    const { first_name, last_name, avatar_url } = req.body;
 
-    if (error) {
-      console.error("Email verification error:", error);
-      return res.status(400).json({
-        success: false,
-        message: "Email verification failed",
-        error: error.message,
-      });
+    const result = await pool.query(
+      `
+      UPDATE profiles
+      SET
+        first_name = COALESCE($1, first_name),
+        last_name  = COALESCE($2, last_name),
+        avatar_url = COALESCE($3, avatar_url),
+        updated_at = NOW()
+      WHERE id = $4
+      RETURNING id, email, first_name, last_name, role, avatar_url, created_at
+      `,
+      [first_name, last_name, avatar_url, userId]
+    );
+
+    if (result.rows.length === 0) {
+        return res.status(404).json({ success: false, message: "User not found" });
     }
 
     return res.status(200).json({
       success: true,
-      message: "Email verified successfully",
+      data: result.rows[0],
     });
   } catch (error) {
-    console.error("Verify email error:", error);
+    console.error("Update current user error:", error);
     return res.status(500).json({
       success: false,
-      message: "Internal server error",
-      error: error.message,
+      message: "Failed to update profile",
     });
   }
 };

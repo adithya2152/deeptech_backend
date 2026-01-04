@@ -20,6 +20,7 @@ const AdminModel = {
         p.id, p.first_name || ' ' || p.last_name as name, p.email, p.role, 
         p.created_at as joined, p.is_banned,
         CASE WHEN p.role = 'expert' THEN e.vetting_status ELSE NULL END as vetting_status,
+        CASE WHEN p.role = 'expert' THEN e.expert_status ELSE NULL END as expert_status,
         CASE 
             WHEN p.role = 'expert' THEN (SELECT COALESCE(SUM(released_total), 0) FROM contracts WHERE expert_id = p.id)
             ELSE (SELECT COALESCE(SUM(total_amount), 0) FROM contracts WHERE buyer_id = p.id)
@@ -51,6 +52,13 @@ const AdminModel = {
         p.id, p.first_name, p.last_name, p.email, p.role, 
         p.created_at as joined, p.is_banned, p.ban_reason, p.avatar_url,
         e.vetting_status, e.vetting_level, e.experience_summary, e.skills,
+        e.expert_status,
+        e.avg_daily_rate,
+        e.avg_fixed_rate,
+        e.avg_sprint_rate,
+        COALESCE(e.patents, '{}') as patents,
+        COALESCE(e.papers, '{}') as papers,
+        COALESCE(e.products, '{}') as products,
         (SELECT COUNT(*) FROM projects WHERE buyer_id = p.id) as project_count,
         (SELECT COUNT(*) FROM contracts WHERE expert_id = p.id OR buyer_id = p.id) as contract_count,
         CASE 
@@ -108,7 +116,7 @@ const AdminModel = {
   verifyExpert: async (expertId) => {
     const query = `
       UPDATE experts 
-      SET vetting_status = 'approved' 
+      SET vetting_status = 'approved', expert_status = 'verified'
       WHERE id = $1 
       RETURNING id
     `;

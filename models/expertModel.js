@@ -2,7 +2,7 @@ import pool from '../config/db.js';
 
 const Expert = {
   searchExperts: async (filters) => {
-    const { domain, queryText, rateMin, rateMax, onlyVerified } = filters;
+    const { domain, queryText } = filters;
 
     let sql = `
       SELECT 
@@ -14,14 +14,16 @@ const Expert = {
         e.experience_summary,
         e.experience_summary as "bio",
         e.experience_summary as "experienceSummary",
+        e.is_profile_complete,
+        e.expert_status,
         e.domains,
-        json_build_object(
-          'advisory', e.hourly_rate_advisory,
-          'architectureReview', e.hourly_rate_architecture,
-          'handsOnExecution', e.hourly_rate_execution
-        ) as "hourlyRates",
-        e.vetting_status as "vettingStatus",
-        e.vetting_level as "vettingLevel",
+        e.avg_daily_rate,
+        e.avg_fixed_rate,
+        e.avg_sprint_rate,
+        e.preferred_engagement_mode, 
+        e.languages,
+        e.years_experience,
+        e.portfolio_url,
         e.rating,
         e.review_count as "reviewCount",
         e.total_hours as "totalHours",
@@ -47,22 +49,6 @@ const Expert = {
       paramIndex++;
     }
 
-    if (onlyVerified === 'true') {
-      sql += ` AND e.vetting_status = 'approved'`;
-    }
-
-    if (rateMin) {
-      sql += ` AND e.hourly_rate_advisory >= $${paramIndex}`;
-      params.push(rateMin);
-      paramIndex++;
-    }
-
-    if (rateMax) {
-      sql += ` AND e.hourly_rate_advisory <= $${paramIndex}`;
-      params.push(rateMax);
-      paramIndex++;
-    }
-
     const { rows } = await pool.query(sql, params);
     return rows;
   },
@@ -80,19 +66,21 @@ const Expert = {
         e.experience_summary as "bio",
         e.experience_summary as "experienceSummary",
         COALESCE(e.domains, '{}') as domains,
-        json_build_object(
-          'advisory', COALESCE(e.hourly_rate_advisory, 0),
-          'architectureReview', COALESCE(e.hourly_rate_architecture, 0),
-          'handsOnExecution', COALESCE(e.hourly_rate_execution, 0)
-        ) as "hourlyRates",
-        e.hourly_rate_advisory,
-        e.hourly_rate_architecture,
-        e.hourly_rate_execution,
-        COALESCE(e.vetting_status, 'pending') as "vettingStatus",
-        e.vetting_level as "vettingLevel",
+        e.headline,
+        e.location,
+        e.availability_status,
+        e.timezone,
+        e.is_profile_complete,
+        e.expert_status,
+        e.avg_daily_rate,
+        e.avg_fixed_rate,
+        e.avg_sprint_rate,
+        e.preferred_engagement_mode, 
+        e.languages,
+        e.years_experience,
+        e.portfolio_url,
         COALESCE(e.rating, 0) as rating,
         COALESCE(e.review_count, 0) as "reviewCount",
-        e.availability,
         COALESCE(e.patents, '{}') as patents,
         COALESCE(e.papers, '{}') as papers,
         COALESCE(e.products, '{}') as products,
@@ -103,6 +91,62 @@ const Expert = {
       WHERE p.id = $1
     `;
     const { rows } = await pool.query(query, [id]);
+    return rows[0];
+  },
+
+  updateExpertById: async (id, data) => {
+    const sql = `
+    UPDATE experts
+    SET
+      experience_summary = $1,
+      domains = $2,
+      avg_daily_rate = $3,
+      avg_sprint_rate = $4,
+      avg_fixed_rate = $5,
+      preferred_engagement_mode = $6,
+      years_experience = $7,
+      languages = $8,
+      portfolio_url = $9,
+      skills = $10,
+      patents = $11,
+      papers = $12,
+      products = $13,
+      is_profile_complete = $14,
+      expert_status = $15,
+      headline = $16,
+      location = $17,
+      availability_status = $18,
+      timezone = $19,
+      updated_at = NOW(),
+      profile_updated_at = NOW()
+    WHERE id = $20
+    RETURNING *
+  `;
+
+    const values = [
+      data.experience_summary ?? null,
+      data.domains ?? [],
+      data.avg_daily_rate ?? 0,
+      data.avg_sprint_rate ?? 0,
+      data.avg_fixed_rate ?? 0,
+      data.preferred_engagement_mode ?? 'daily',
+      data.years_experience ?? 0,
+      data.languages ?? [],
+      data.portfolio_url ?? null,
+      data.skills ?? [],
+      data.patents ?? [],
+      data.papers ?? [],
+      data.products ?? [],
+      data.is_profile_complete ?? false,
+      data.expert_status ?? 'incomplete',
+      data.headline ?? null,
+      data.location ?? null,
+      data.availability_status ?? 'open',
+      data.timezone ?? null,
+      id
+    ];
+
+    const { rows } = await pool.query(sql, values);
     return rows[0];
   },
 
@@ -140,9 +184,9 @@ const Expert = {
       WHERE id = $3
       RETURNING id, embedding_updated_at
     `;
-    
+
     const vectorString = `[${embedding.join(',').slice(0, 10000)}]`;
-    
+
     const { rows } = await pool.query(sql, [
       vectorString,
       text,
@@ -160,9 +204,9 @@ const Expert = {
         e.skills,
         e.domains,
         e.embedding,
-        e.hourly_rate_advisory as hourly_rate,
+        e.avg_daily_rate,
+        e.preferred_engagement_mode,
         e.availability,
-        e.vetting_status,
         e.rating,
         e.total_hours
       FROM experts e
