@@ -3,7 +3,12 @@ import expertController from '../controllers/expertController.js';
 import { auth } from '../middleware/auth.js';
 import multer from 'multer';
 
-const upload = multer({ storage: multer.memoryStorage() });
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: 5 * 1024 * 1024,
+  },
+});
 
 const router = express.Router();
 
@@ -19,7 +24,7 @@ const router = express.Router();
  * name: domain
  * schema:
  * type: string
- * description: Comma-separated domains (e.g. ai,robotics)
+ * description: Single domain (e.g. ai)
  * - in: query
  * name: query
  * schema:
@@ -119,9 +124,16 @@ router.get('/', expertController.searchExperts);
  */
 router.post('/semantic-search', expertController.semanticSearch);
 
+// routes/experts.js
+router.get(
+  '/resume/signed-url',
+  auth,
+  expertController.getResumeSignedUrl
+);
+
 router.post('/documents', auth, upload.single('file'), expertController.uploadExpertDocument);
 
-router.delete('/documents', auth, expertController.deleteExpertDocument);
+router.delete('/documents/:documentId', auth, expertController.deleteExpertDocument);
 
 router.post(
   '/avatar',
@@ -129,7 +141,6 @@ router.post(
   upload.single('file'),
   expertController.uploadAvatar
 );
-
 
 /**
  * @swagger

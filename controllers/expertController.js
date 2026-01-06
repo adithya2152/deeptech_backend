@@ -81,13 +81,21 @@ export const semanticSearch = async (req, res) => {
 export const getExpertById = async (req, res) => {
   try {
     const { id } = req.params;
+
     const expert = await expertModel.getExpertById(id);
+    if (!expert) return res.status(404).json({ error: 'Expert not found' });
 
-    if (!expert) {
-      return res.status(404).json({ error: 'Expert not found' });
-    }
+    const { rows: documents } = await pool.query(
+      `
+      SELECT id, expert_id, document_type, sub_type, title, url, is_public, created_at
+      FROM expert_documents
+      WHERE expert_id = $1
+      ORDER BY created_at DESC
+      `,
+      [id]
+    );
 
-    res.status(200).json({ data: expert });
+    res.status(200).json({ data: { ...expert, documents } });
   } catch (error) {
     console.error("GET ID ERROR:", error);
     res.status(500).json({ error: 'Server error' });
@@ -127,87 +135,164 @@ export const updateExpertProfile = async (req, res) => {
   }
 };
 
+export const getResumeSignedUrl = async (req, res) => {
+  try {
+    const userId = req.user.id;
+
+    const { rows } = await pool.query(
+      `
+      SELECT url
+      FROM expert_documents
+      WHERE expert_id = $1 AND document_type = 'resume'
+      ORDER BY created_at DESC
+      LIMIT 1
+      `,
+      [userId]
+    );
+
+    const resumePath = rows[0]?.url;
+
+    if (!resumePath) {
+      return res.status(404).json({ message: 'No resume uploaded' });
+    }
+
+    const { data, error } = await supabase.storage
+      .from('expert-private-documents')
+      .createSignedUrl(resumePath, 60 * 5); // 5 min
+
+    if (error) throw error;
+
+    res.json({ url: data.signedUrl });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Failed to generate resume link' });
+  }
+};
+
 export const uploadExpertDocument = async (req, res) => {
-  if (!req.user?.id) {
-    return res.status(401).json({ message: 'Unauthorized' });
-  }
+  try {
+    if (!req.user?.id) {
+      return res.status(401).json({ message: 'Unauthorized' });
+    }
 
-  const { type, title, url } = req.body;
-  const file = req.file;
+    const userId = req.user.id;
+    const { type, sub_type, title, url, is_public = true } = req.body;
+    const file = req.file;
 
-  const columnMap = {
-    patent: 'patents',
-    paper: 'papers',
-    product: 'products',
-  };
+    const allowedTypes = ['resume', 'work', 'publication', 'credential', 'other'];
+    if (!allowedTypes.includes(type)) {
+      return res.status(400).json({ message: 'Invalid document type' });
+    }
 
-  const column = columnMap[type];
-  if (!column) {
-    return res.status(400).json({ message: 'Invalid document type' });
-  }
+    // resume, publication, credential → FILE REQUIRED
+    // work / other → LINK REQUIRED
+    let finalUrl = null;
 
-  let valueToStore;
+    if (['resume', 'publication', 'credential'].includes(type)) {
+      if (!file) return res.status(400).json({ message: 'File required' });
 
-  if (type === 'product') {
-    if (!url) return res.status(400).json({ message: 'URL required' });
-    valueToStore = url;
-  } else {
-    if (!file) return res.status(400).json({ message: 'File required' });
+      const bucket =
+        type === 'resume' ? 'expert-private-documents' : 'expert-public-documents';
 
-    const filePath = `experts/${req.user.id}/${Date.now()}-${file.originalname}`;
+      const filePath = `experts/${userId}/${type}/${Date.now()}-${file.originalname}`;
 
-    const { error } = await supabase.storage
-      .from('expert-documents')
-      .upload(filePath, file.buffer, {
+      const { error } = await supabase.storage.from(bucket).upload(filePath, file.buffer, {
         contentType: file.mimetype,
+        upsert: false,
       });
 
-    if (error) return res.status(500).json({ error: error.message });
+      if (error) return res.status(500).json({ message: error.message });
 
-    valueToStore = supabase.storage
-      .from('expert-documents')
-      .getPublicUrl(filePath).data.publicUrl;
+      finalUrl =
+        type === 'resume'
+          ? filePath
+          : supabase.storage.from(bucket).getPublicUrl(filePath).data.publicUrl;
+    }
+
+    if (['work', 'other'].includes(type)) {
+      if (!url) return res.status(400).json({ message: 'URL required' });
+      finalUrl = url;
+    }
+
+    const insertRes = await pool.query(
+      `
+      INSERT INTO expert_documents
+      (expert_id, document_type, sub_type, title, url, is_public)
+      VALUES ($1, $2, $3, $4, $5, $6)
+      RETURNING *
+      `,
+      [userId, type, sub_type || null, title || null, finalUrl, is_public]
+    );
+
+    const insertedDoc = insertRes.rows[0];
+
+    if (type === 'resume') {
+      await pool.query(
+        `
+        DELETE FROM expert_documents
+        WHERE expert_id = $1
+          AND document_type = 'resume'
+          AND id <> $2
+        `,
+        [userId, insertedDoc.id]
+      );
+    }
+
+    res.json({ success: true, data: insertedDoc });
+  } catch (error) {
+    console.error('UPLOAD DOCUMENT ERROR:', error);
+    res.status(500).json({ message: 'Upload failed' });
   }
-
-  await pool.query(
-    `UPDATE experts SET ${column} = array_append(${column}, $1) WHERE id = $2`,
-    [valueToStore, req.user.id]
-  );
-
-  res.json({ success: true });
 };
 
 export const deleteExpertDocument = async (req, res) => {
-  const { type, url } = req.body;
-  const userId = req.user.id;
-  const allowed = ['patent', 'paper', 'product'];
-  
-  if (!allowed.includes(type)) {
-    return res.status(400).json({ success: false, message: 'Invalid type' });
+  try {
+    const userId = req.user.id;
+    const { documentId } = req.params;
+
+    const { rows } = await pool.query(
+      `
+      SELECT * FROM expert_documents
+      WHERE id = $1 AND expert_id = $2
+      `,
+      [documentId, userId]
+    );
+
+    if (rows.length === 0) {
+      return res.status(404).json({ message: 'Document not found' });
+    }
+
+    const doc = rows[0];
+
+    // 🗑 Remove file only for file-based docs
+    if (['resume', 'publication', 'credential'].includes(doc.document_type)) {
+      const bucket =
+        doc.document_type === 'resume'
+          ? 'expert-private-documents'
+          : 'expert-public-documents';
+
+      const filePath =
+        doc.document_type === 'resume'
+          ? doc.url
+          : doc.url.split(`${bucket}/`)[1];
+
+      if (filePath) {
+        await supabase.storage.from(bucket).remove([filePath]);
+      }
+    }
+
+    // 🧹 Delete DB row
+    await pool.query(
+      `DELETE FROM expert_documents WHERE id = $1`,
+      [documentId]
+    );
+
+    res.json({ success: true });
+
+  } catch (error) {
+    console.error('DELETE DOCUMENT ERROR:', error);
+    res.status(500).json({ message: 'Delete failed' });
   }
-
-  // extract file path from public URL
-  const filePath = url.split('/').slice(-2).join('/');
-
-  // 1️⃣ delete from bucket
-  const { error } = await supabase.storage
-    .from('expert-documents')
-    .remove([filePath]);
-
-  if (error) {
-    console.error('Bucket delete failed:', error);
-    return res.status(500).json({ success: false });
-  }
-
-  // 2️⃣ update DB array
-  await pool.query(
-    `UPDATE experts
-     SET ${type}s = array_remove(${type}s, $1)
-     WHERE id = $2`,
-    [url, userId]
-  );
-
-  res.json({ success: true });
 };
 
 export const uploadAvatar = async (req, res) => {
@@ -219,7 +304,6 @@ export const uploadAvatar = async (req, res) => {
       return res.status(400).json({ success: false, message: 'No file uploaded' });
     }
 
-    // 1️⃣ Get existing avatar URL
     const { rows } = await pool.query(
       'SELECT avatar_url FROM profiles WHERE id = $1',
       [userId]
@@ -227,7 +311,6 @@ export const uploadAvatar = async (req, res) => {
 
     const oldAvatarUrl = rows[0]?.avatar_url;
 
-    // 3️⃣ Upload new avatar (stable path)
     const filePath = `${userId}/avatar.png`;
 
     const { error: uploadError } = await supabase.storage
@@ -239,12 +322,10 @@ export const uploadAvatar = async (req, res) => {
 
     if (uploadError) throw uploadError;
 
-    // 4️⃣ Get public URL
     const { data } = supabase.storage
       .from('avatars')
       .getPublicUrl(filePath);
 
-    // 5️⃣ Update DB
     await pool.query(
       'UPDATE profiles SET avatar_url = $1 WHERE id = $2',
       [data.publicUrl, userId]
@@ -257,7 +338,6 @@ export const uploadAvatar = async (req, res) => {
     res.status(500).json({ success: false, message: 'Avatar upload failed' });
   }
 };
-
 
 async function callSemanticSearchService(query, limit) {
   const PYTHON_SERVICE_URL =
@@ -283,6 +363,7 @@ export default {
   semanticSearch,
   getExpertById,
   updateExpertProfile,
+  getResumeSignedUrl,
   uploadExpertDocument,
   deleteExpertDocument,
   uploadAvatar

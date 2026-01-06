@@ -38,8 +38,9 @@ const Expert = {
     let paramIndex = 1;
 
     if (domain) {
-      sql += ` AND e.domains @> $${paramIndex}::text[]`;
-      params.push(`{${domain}}`);
+      const domains = domain.split(',');
+      sql += ` AND e.domains && $${paramIndex}::text[]`;
+      params.push(domains);
       paramIndex++;
     }
 
@@ -55,41 +56,55 @@ const Expert = {
 
   getExpertById: async (id) => {
     const query = `
-      SELECT 
-        p.id, 
-        p.first_name, 
-        p.last_name, 
-        p.first_name || ' ' || p.last_name as name,
-        p.email,
-        p.role,
-        e.experience_summary,
-        e.experience_summary as "bio",
-        e.experience_summary as "experienceSummary",
-        COALESCE(e.domains, '{}') as domains,
-        e.headline,
-        e.location,
-        e.availability_status,
-        e.timezone,
-        e.is_profile_complete,
-        e.expert_status,
-        e.avg_daily_rate,
-        e.avg_fixed_rate,
-        e.avg_sprint_rate,
-        e.preferred_engagement_mode, 
-        e.languages,
-        e.years_experience,
-        e.portfolio_url,
-        COALESCE(e.rating, 0) as rating,
-        COALESCE(e.review_count, 0) as "reviewCount",
-        COALESCE(e.patents, '{}') as patents,
-        COALESCE(e.papers, '{}') as papers,
-        COALESCE(e.products, '{}') as products,
-        COALESCE(e.skills, '{}') as skills,
-        COALESCE(e.expertise_areas, '{}') as expertise_areas
-      FROM profiles p
-      LEFT JOIN experts e ON p.id = e.id
-      WHERE p.id = $1
-    `;
+    SELECT 
+      p.id,
+      p.first_name,
+      p.last_name,
+      p.first_name || ' ' || p.last_name as name,
+      p.email,
+      p.role,
+
+      e.experience_summary,
+      e.experience_summary as bio,
+      e.domains,
+      e.availability_status,
+      e.timezone,
+      e.is_profile_complete,
+      e.expert_status,
+      e.avg_daily_rate,
+      e.avg_fixed_rate,
+      e.avg_sprint_rate,
+      e.preferred_engagement_mode,
+      e.languages,
+      e.years_experience,
+      e.portfolio_url,
+      e.profile_video_url,
+      e.rating,
+      e.review_count,
+      e.skills,
+      e.expertise_areas,
+
+      COALESCE(
+        json_agg(
+          json_build_object(
+            'id', d.id,
+            'type', d.document_type,
+            'sub_type', d.sub_type,
+            'title', d.title,
+            'url', d.url,
+            'is_public', d.is_public
+          )
+        ) FILTER (WHERE d.id IS NOT NULL),
+        '[]'
+      ) as documents
+
+    FROM profiles p
+    JOIN experts e ON p.id = e.id
+    LEFT JOIN expert_documents d ON d.expert_id = e.id
+    WHERE p.id = $1
+    GROUP BY p.id, e.id
+  `;
+
     const { rows } = await pool.query(query, [id]);
     return rows[0];
   },
@@ -107,19 +122,15 @@ const Expert = {
       years_experience = $7,
       languages = $8,
       portfolio_url = $9,
-      skills = $10,
-      patents = $11,
-      papers = $12,
-      products = $13,
-      is_profile_complete = $14,
-      expert_status = $15,
-      headline = $16,
-      location = $17,
-      availability_status = $18,
-      timezone = $19,
+      profile_video_url = $10,
+      skills = $11,
+      is_profile_complete = $12,
+      expert_status = $13,
+      availability_status = $14,
+      timezone = $15,
       updated_at = NOW(),
       profile_updated_at = NOW()
-    WHERE id = $20
+    WHERE id = $16
     RETURNING *
   `;
 
@@ -133,14 +144,10 @@ const Expert = {
       data.years_experience ?? 0,
       data.languages ?? [],
       data.portfolio_url ?? null,
+      data.profile_video_url ?? null,
       data.skills ?? [],
-      data.patents ?? [],
-      data.papers ?? [],
-      data.products ?? [],
       data.is_profile_complete ?? false,
       data.expert_status ?? 'incomplete',
-      data.headline ?? null,
-      data.location ?? null,
       data.availability_status ?? 'open',
       data.timezone ?? null,
       id
@@ -206,7 +213,7 @@ const Expert = {
         e.embedding,
         e.avg_daily_rate,
         e.preferred_engagement_mode,
-        e.availability,
+        e.availability_status as availability,
         e.rating,
         e.total_hours
       FROM experts e
