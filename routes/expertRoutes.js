@@ -136,11 +136,14 @@ router.post('/documents', auth, upload.single('file'), expertController.uploadEx
 router.delete('/documents/:documentId', auth, expertController.deleteExpertDocument);
 
 router.post(
-  '/avatar',
+  '/profile-media',
   auth,
   upload.single('file'),
-  expertController.uploadAvatar
+  expertController.uploadProfileMedia
 );
+
+router.patch('/avatar', auth, expertController.updateAvatar);
+router.patch('/banner', auth, expertController.updateBanner);
 
 /**
  * @swagger

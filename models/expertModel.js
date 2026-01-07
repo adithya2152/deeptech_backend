@@ -11,6 +11,8 @@ const Expert = {
         p.last_name,
         p.first_name || ' ' || p.last_name as name,
         p.email,
+        p.avatar_url,
+        p.banner_url,
         e.experience_summary,
         e.experience_summary as "bio",
         e.experience_summary as "experienceSummary",
@@ -63,6 +65,8 @@ const Expert = {
       p.first_name || ' ' || p.last_name as name,
       p.email,
       p.role,
+      p.avatar_url,
+      p.banner_url,
 
       e.experience_summary,
       e.experience_summary as bio,
@@ -110,48 +114,55 @@ const Expert = {
   },
 
   updateExpertById: async (id, data) => {
-    const sql = `
-    UPDATE experts
-    SET
-      experience_summary = $1,
-      domains = $2,
-      avg_daily_rate = $3,
-      avg_sprint_rate = $4,
-      avg_fixed_rate = $5,
-      preferred_engagement_mode = $6,
-      years_experience = $7,
-      languages = $8,
-      portfolio_url = $9,
-      profile_video_url = $10,
-      skills = $11,
-      is_profile_complete = $12,
-      expert_status = $13,
-      availability_status = $14,
-      timezone = $15,
-      updated_at = NOW(),
-      profile_updated_at = NOW()
-    WHERE id = $16
-    RETURNING *
-  `;
+    const fields = [];
+    const values = [];
+    let paramIndex = 1;
 
-    const values = [
-      data.experience_summary ?? null,
-      data.domains ?? [],
-      data.avg_daily_rate ?? 0,
-      data.avg_sprint_rate ?? 0,
-      data.avg_fixed_rate ?? 0,
-      data.preferred_engagement_mode ?? 'daily',
-      data.years_experience ?? 0,
-      data.languages ?? [],
-      data.portfolio_url ?? null,
-      data.profile_video_url ?? null,
-      data.skills ?? [],
-      data.is_profile_complete ?? false,
-      data.expert_status ?? 'incomplete',
-      data.availability_status ?? 'open',
-      data.timezone ?? null,
-      id
+    // Define allowed columns to prevent SQL injection or invalid column errors
+    const allowedColumns = [
+      'experience_summary',
+      'domains',
+      'avg_daily_rate',
+      'avg_sprint_rate',
+      'avg_fixed_rate',
+      'preferred_engagement_mode',
+      'years_experience',
+      'languages',
+      'portfolio_url',
+      'profile_video_url',
+      'skills',
+      'is_profile_complete',
+      'expert_status',
+      'availability_status',
+      'timezone'
     ];
+
+    // Iterate over allowed columns and check if they exist in the input data
+    allowedColumns.forEach(col => {
+      if (Object.prototype.hasOwnProperty.call(data, col)) {
+        fields.push(`${col} = $${paramIndex}`);
+        values.push(data[col]);
+        paramIndex++;
+      }
+    });
+
+    // Always update timestamps
+    fields.push(`updated_at = NOW()`);
+    fields.push(`profile_updated_at = NOW()`);
+
+    // If no fields to update, return early to avoid SQL error
+    if (values.length === 0) {
+      return null;
+    }
+
+    const sql = `
+      UPDATE experts
+      SET ${fields.join(', ')}
+      WHERE id = $${paramIndex}
+      RETURNING *
+    `;
+    
+    values.push(id);
 
     const { rows } = await pool.query(sql, values);
     return rows[0];

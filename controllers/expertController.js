@@ -1,6 +1,7 @@
 import expertModel from '../models/expertModel.js';
 import { supabase } from '../config/supabase.js';
 import pool from '../config/db.js';
+import path from 'path';
 
 export const searchExperts = async (req, res) => {
   try {
@@ -113,18 +114,39 @@ export const updateExpertProfile = async (req, res) => {
       });
     }
 
-    const updatedExpert = await expertModel.updateExpertById(id, req.body);
+    // Dynamic update for profile images (avatar/banner)
+    const mediaUpdates = [];
+    const mediaValues = [];
+    let queryIndex = 1;
 
-    if (!updatedExpert) {
-      return res.status(404).json({
-        success: false,
-        message: 'Expert not found',
-      });
+    // Use hasOwnProperty to strictly check if the key was sent in the request.
+    // If sent (even as null), we update it. If not sent (undefined), we ignore it.
+    if (req.body.avatar_url !== undefined) {
+      mediaUpdates.push(`avatar_url = $${queryIndex++}`);
+      mediaValues.push(req.body.avatar_url);
     }
 
+    if (req.body.banner_url !== undefined) {
+      mediaUpdates.push(`banner_url = $${queryIndex++}`);
+      mediaValues.push(req.body.banner_url);
+    }
+
+    if (mediaUpdates.length > 0) {
+      mediaValues.push(id);
+      await pool.query(
+        `UPDATE profiles SET ${mediaUpdates.join(', ')} WHERE id = $${queryIndex}`,
+        mediaValues
+      );
+    }
+
+    // Update other expert fields
+    const updatedExpert = await expertModel.updateExpertById(id, req.body);
+    
+    // Return success even if expertModel returns null (e.g. if no expert-specific fields were updated)
     res.status(200).json({
       success: true,
-      data: updatedExpert,
+      data: updatedExpert || { id },
+      message: 'Profile updated'
     });
   } catch (error) {
     console.error('UPDATE EXPERT ERROR:', error);
@@ -184,8 +206,6 @@ export const uploadExpertDocument = async (req, res) => {
       return res.status(400).json({ message: 'Invalid document type' });
     }
 
-    // resume, publication, credential → FILE REQUIRED
-    // work / other → LINK REQUIRED
     let finalUrl = null;
 
     if (['resume', 'publication', 'credential'].includes(type)) {
@@ -264,7 +284,6 @@ export const deleteExpertDocument = async (req, res) => {
 
     const doc = rows[0];
 
-    // 🗑 Remove file only for file-based docs
     if (['resume', 'publication', 'credential'].includes(doc.document_type)) {
       const bucket =
         doc.document_type === 'resume'
@@ -281,7 +300,6 @@ export const deleteExpertDocument = async (req, res) => {
       }
     }
 
-    // 🧹 Delete DB row
     await pool.query(
       `DELETE FROM expert_documents WHERE id = $1`,
       [documentId]
@@ -294,48 +312,70 @@ export const deleteExpertDocument = async (req, res) => {
     res.status(500).json({ message: 'Delete failed' });
   }
 };
-
-export const uploadAvatar = async (req, res) => {
+export const updateAvatar = async (req, res) => {
   try {
     const userId = req.user.id;
-    const file = req.file;
+    const { avatar_url } = req.body;
 
-    if (!file) {
-      return res.status(400).json({ success: false, message: 'No file uploaded' });
-    }
-
-    const { rows } = await pool.query(
-      'SELECT avatar_url FROM profiles WHERE id = $1',
-      [userId]
+    await pool.query(
+      `UPDATE profiles SET avatar_url = $1 WHERE id = $2`,
+      [avatar_url, userId]
     );
 
-    const oldAvatarUrl = rows[0]?.avatar_url;
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ message: 'Failed to update avatar' });
+  }
+};
 
-    const filePath = `${userId}/avatar.png`;
+export const updateBanner = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { banner_url } = req.body;
 
-    const { error: uploadError } = await supabase.storage
-      .from('avatars')
+    await pool.query(
+      `UPDATE profiles SET banner_url = $1 WHERE id = $2`,
+      [banner_url, userId]
+    );
+
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ message: 'Failed to update banner' });
+  }
+};
+
+export const uploadProfileMedia = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { type } = req.query;
+    const file = req.file;
+
+    if (!['avatar', 'banner'].includes(type)) {
+      return res.status(400).json({ message: 'Invalid type' });
+    }
+    if (!file) {
+      return res.status(400).json({ message: 'No file uploaded' });
+    }
+
+    const folder = type === 'avatar' ? 'avatars' : 'banners';
+    const ext = path.extname(file.originalname);
+    const filePath = `${folder}/${userId}${ext}`;
+
+    const { error } = await supabase.storage
+      .from('profile-media')
       .upload(filePath, file.buffer, {
         contentType: file.mimetype,
         upsert: true,
       });
-
-    if (uploadError) throw uploadError;
+    if (error) throw error;
 
     const { data } = supabase.storage
-      .from('avatars')
+      .from('profile-media')
       .getPublicUrl(filePath);
 
-    await pool.query(
-      'UPDATE profiles SET avatar_url = $1 WHERE id = $2',
-      [data.publicUrl, userId]
-    );
-
     res.json({ success: true, url: data.publicUrl });
-
   } catch (err) {
-    console.error('Avatar upload error:', err);
-    res.status(500).json({ success: false, message: 'Avatar upload failed' });
+    res.status(500).json({ message: err.message || 'Upload failed' });
   }
 };
 
@@ -366,5 +406,7 @@ export default {
   getResumeSignedUrl,
   uploadExpertDocument,
   deleteExpertDocument,
-  uploadAvatar
+  updateAvatar,
+  updateBanner,
+  uploadProfileMedia
 };

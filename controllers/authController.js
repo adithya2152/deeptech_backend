@@ -70,10 +70,10 @@ export const verifyEmailOtp = async (req, res) => {
     if (error) throw error;
 
     const signupTicket = jwt.sign(
-      { 
-        email, 
+      {
+        email,
         userId: data.user.id,
-        type: "signup_ticket" 
+        type: "signup_ticket"
       },
       jwtSecret,
       { expiresIn: "15m" }
@@ -99,13 +99,13 @@ export const register = async (req, res) => {
 
     let userId;
     try {
-        const decoded = jwt.verify(signupTicket, jwtSecret);
-        if (decoded.type !== "signup_ticket" || decoded.email !== email) {
-            throw new Error("Invalid ticket");
-        }
-        userId = decoded.userId;
+      const decoded = jwt.verify(signupTicket, jwtSecret);
+      if (decoded.type !== "signup_ticket" || decoded.email !== email) {
+        throw new Error("Invalid ticket");
+      }
+      userId = decoded.userId;
     } catch (e) {
-        return res.status(401).json({ success: false, message: "Invalid or expired verification session" });
+      return res.status(401).json({ success: false, message: "Invalid or expired verification session" });
     }
 
     if (password.length < 6) {
@@ -440,7 +440,7 @@ export const updateCurrentUser = async (req, res) => {
       });
     }
 
-    const { first_name, last_name, avatar_url } = req.body;
+    const { first_name, last_name, avatar_url, banner_url } = req.body;
 
     const result = await pool.query(
       `
@@ -448,16 +448,17 @@ export const updateCurrentUser = async (req, res) => {
       SET
         first_name = COALESCE($1, first_name),
         last_name  = COALESCE($2, last_name),
-        avatar_url = COALESCE($3, avatar_url),
+        avatar_url = $3,
+        banner_url = $4,
         updated_at = NOW()
-      WHERE id = $4
-      RETURNING id, email, first_name, last_name, role, avatar_url, created_at
+      WHERE id = $5
+      RETURNING id, email, first_name, last_name, role, avatar_url, banner_url, created_at
       `,
-      [first_name, last_name, avatar_url, userId]
+      [first_name, last_name, avatar_url ?? null, banner_url ?? null, userId]
     );
 
     if (result.rows.length === 0) {
-        return res.status(404).json({ success: false, message: "User not found" });
+      return res.status(404).json({ success: false, message: "User not found" });
     }
 
     return res.status(200).json({
