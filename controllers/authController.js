@@ -217,7 +217,7 @@ export const login = async (req, res) => {
     const userId = authData.user.id;
 
     const result = await pool.query(
-      "SELECT id, email, first_name, last_name, role, avatar_url, is_banned, ban_reason FROM profiles WHERE id = $1",
+      "SELECT id, email, first_name, last_name, role, avatar_url, created_at, is_banned, ban_reason FROM profiles WHERE id = $1",
       [userId]
     );
 
@@ -260,6 +260,7 @@ export const login = async (req, res) => {
           last_name: user.last_name,
           role: user.role,
           avatar_url: user.avatar_url,
+          created_at: user.created_at,
         },
         tokens: {
           accessToken,
@@ -448,13 +449,13 @@ export const updateCurrentUser = async (req, res) => {
       SET
         first_name = COALESCE($1, first_name),
         last_name  = COALESCE($2, last_name),
-        avatar_url = $3,
-        banner_url = $4,
+        avatar_url = COALESCE($3, avatar_url),
+        banner_url = COALESCE($4, banner_url),
         updated_at = NOW()
       WHERE id = $5
       RETURNING id, email, first_name, last_name, role, avatar_url, banner_url, created_at
       `,
-      [first_name, last_name, avatar_url ?? null, banner_url ?? null, userId]
+      [first_name, last_name, avatar_url, banner_url, userId]
     );
 
     if (result.rows.length === 0) {

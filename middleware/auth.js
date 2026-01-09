@@ -20,7 +20,7 @@ const auth = async (req, res, next) => {
 
   try {
     const decoded = jwt.verify(token, jwtSecret);
-    
+
     const query = 'SELECT is_banned, ban_reason FROM profiles WHERE id = $1';
     const { rows } = await pool.query(query, [decoded.id]);
 
@@ -68,7 +68,10 @@ const optionalAuth = (req, res, next) => {
   if (token) {
     try {
       const decoded = jwt.verify(token, jwtSecret);
-      req.user = decoded;
+      req.user = {
+        id: decoded.id || decoded.userId,
+        ...decoded,
+      };
     } catch (err) {
       console.error("JWT Verification Error: ", err.message);
     }
