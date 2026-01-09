@@ -68,7 +68,10 @@ const optionalAuth = (req, res, next) => {
   if (token) {
     try {
       const decoded = jwt.verify(token, jwtSecret);
-      req.user = decoded;
+      req.user = {
+        id: decoded.id || decoded.userId,
+        ...decoded,
+      };
     } catch (err) {
       console.error("JWT Verification Error: ", err.message);
     }
