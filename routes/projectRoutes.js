@@ -1,6 +1,7 @@
 import express from 'express';
 import projectController from '../controllers/projectController.js';
 import { auth } from '../middleware/auth.js';
+import { requireRole } from '../middleware/rbac.js';
 
 const router = express.Router();
 
@@ -95,7 +96,7 @@ router.get('/:id', auth, projectController.getProjectById);
  *       201:
  *         description: Project created successfully
  */
-router.post('/', auth, projectController.createProject);
+router.post('/', requireRole('buyer'), projectController.createProject);
 
 /**
  * @swagger
@@ -113,7 +114,7 @@ router.post('/', auth, projectController.createProject);
  *       200:
  *         description: Project updated
  */
-router.put('/:id', auth, projectController.updateProject);
+router.put('/:id', requireRole('buyer'), projectController.updateProject);
 
 /**
  * @swagger
@@ -131,7 +132,7 @@ router.put('/:id', auth, projectController.updateProject);
  *       200:
  *         description: Project updated
  */
-router.patch('/:id', auth, projectController.updateProject);
+router.patch('/:id', requireRole('buyer'), projectController.updateProject);
 
 /**
  * @swagger
@@ -149,7 +150,7 @@ router.patch('/:id', auth, projectController.updateProject);
  *       200:
  *         description: Project deleted
  */
-router.delete('/:id', auth, projectController.deleteProject);
+router.delete('/:id', requireRole('buyer'), projectController.deleteProject);
 
 /* ---------- PROPOSALS ---------- */
 
@@ -169,7 +170,7 @@ router.delete('/:id', auth, projectController.deleteProject);
  *       200:
  *         description: List of proposals
  */
-router.get('/:id/proposals', auth, projectController.getProjectProposals);
+router.get('/:id/proposals', requireRole('buyer'), projectController.getProjectProposals);
 
 /**
  * @swagger
@@ -200,6 +201,6 @@ router.get('/:id/proposals', auth, projectController.getProjectProposals);
  *       201:
  *         description: Proposal submitted
  */
-router.post('/:id/proposals', auth, projectController.submitProposal);
+router.post('/:id/proposals', requireRole('expert'), projectController.submitProposal);
 
 export default router;

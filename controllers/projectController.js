@@ -37,7 +37,7 @@ export const createProject = async (req, res) => {
       risk_categories: req.body.risk_categories,
       expected_outcome: req.body.expected_outcome,
       budget_min: req.body.budget_min,
-      budget_max: req.body.budge_max,
+      budget_max: req.body.budget_max,
       deadline: req.body.deadline
     };
     const newProject = await projectModel.create(projectData);
@@ -100,7 +100,8 @@ export const deleteProject = async (req, res) => {
 
 export const getMarketplaceProjects = async (req, res) => {
   try {
-    const projects = await projectModel.getMarketplaceProjects();
+    const buyerId = req.query.buyer_id || req.query.buyerId;
+    const projects = await projectModel.getMarketplaceProjects(buyerId);
     res.status(200).json({ data: projects });
   } catch (error) {
     console.error("MARKETPLACE ERROR:", error);
@@ -139,6 +140,16 @@ export const submitProposal = async (req, res) => {
 
     if (req.user.role !== 'expert') {
         return res.status(403).json({ error: 'Only experts can submit proposals' });
+    }
+
+    const project = await projectModel.getById(projectId);
+    if (!project) return res.status(404).json({ error: 'Project not found' });
+
+    const projectBuyerId = project.buyer?.id || project.buyer_id;
+    if (projectBuyerId === expertId) {
+      return res.status(400).json({
+        error: 'You cannot submit a proposal on your own project'
+      });
     }
 
     const proposal = await projectModel.createProposal(projectId, expertId, {

@@ -14,7 +14,6 @@ const Contract = {
     return rows[0];
   },
 
-  // Create a new contract
   createContract: async (data) => {
     const {
       project_id,
@@ -61,7 +60,7 @@ const Contract = {
         start_date,
         status,
         created_at,
-        total_amount       
+        total_amount        
       )
       VALUES ($1, $2, $3, $4, $5, $6, 'pending', NOW(), $7)
       RETURNING *;
@@ -92,7 +91,6 @@ const Contract = {
     return rows[0];
   },
 
-  // Sign NDA and activate contract
   signNdaAndActivate: async (contract_id, signature_name, ip_address) => {
     const query = `
       UPDATE contracts 
@@ -113,35 +111,30 @@ const Contract = {
     return rows[0];
   },
 
-  // Get contract by ID
   getById: async (id) => {
     const query = `SELECT * FROM contracts WHERE id = $1`;
     const { rows } = await pool.query(query, [id]);
     return rows[0];
   },
 
-  // Get contracts by expert ID
   getByExpertId: async (expert_id) => {
     const query = `SELECT * FROM contracts WHERE expert_id = $1 ORDER BY created_at DESC`;
     const { rows } = await pool.query(query, [expert_id]);
     return rows;
   },
 
-  // Get contracts by buyer ID
   getByBuyerId: async (buyer_id) => {
     const query = `SELECT * FROM contracts WHERE buyer_id = $1 ORDER BY created_at DESC`;
     const { rows } = await pool.query(query, [buyer_id]);
     return rows;
   },
 
-  // Get contracts by project ID
   getByProjectId: async (project_id) => {
     const query = `SELECT * FROM contracts WHERE project_id = $1 ORDER BY created_at DESC`;
     const { rows } = await pool.query(query, [project_id]);
     return rows;
   },
 
-  // Pending contract for expert+project
   getPendingContractForExpertAndProject: async (expert_id, project_id) => {
     const query = `
       SELECT * FROM contracts 
@@ -152,7 +145,6 @@ const Contract = {
     return rows[0];
   },
 
-  // Contract with project + profile details
   getContractWithDetails: async (id) => {
     const query = `
       SELECT 
@@ -231,7 +223,6 @@ const Contract = {
     return rows;
   },
 
-  // Fund escrow balance
   fundEscrow: async (contract_id, amount) => {
     const query = `
       UPDATE contracts
@@ -245,7 +236,6 @@ const Contract = {
     return rows[0];
   },
 
-  // Update contract status
   updateStatus: async (contract_id, status) => {
     const query = `
       UPDATE contracts
@@ -256,6 +246,46 @@ const Contract = {
     const { rows } = await pool.query(query, [contract_id, status]);
     return rows[0];
   },
+
+  checkFeedbackExists: async (contract_id, giver_id) => {
+    const query = `SELECT id FROM feedback WHERE contract_id = $1 AND giver_id = $2`;
+    const { rows } = await pool.query(query, [contract_id, giver_id]);
+    return rows.length > 0;
+  },
+
+  createFeedback: async (contract_id, giver_id, receiver_id, rating, comment, is_positive) => {
+    const query = `
+      INSERT INTO feedback (contract_id, giver_id, receiver_id, rating, comment, is_positive)
+      VALUES ($1, $2, $3, $4, $5, $6)
+      RETURNING *;
+    `;
+    const { rows } = await pool.query(query, [contract_id, giver_id, receiver_id, rating, comment, is_positive]);
+    return rows[0];
+  },
+
+  getFeedbackByContractId: async (contract_id) => {
+    const query = `
+      SELECT f.*, p.first_name, p.last_name, p.avatar_url
+      FROM feedback f
+      JOIN profiles p ON f.giver_id = p.id
+      WHERE contract_id = $1
+    `;
+    const { rows } = await pool.query(query, [contract_id]);
+    return rows;
+  },
+
+  updateExpertRating: async (expert_id) => {
+    const stats = await pool.query(
+      `SELECT AVG(rating) as new_rating, COUNT(*) as count 
+       FROM feedback WHERE receiver_id = $1`,
+      [expert_id]
+    );
+    
+    await pool.query(
+      `UPDATE experts SET rating = $1, review_count = $2 WHERE id = $3`,
+      [parseFloat(stats.rows[0].new_rating || 0).toFixed(1), stats.rows[0].count, expert_id]
+    );
+  }
 };
 
 export default Contract;

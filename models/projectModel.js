@@ -1,18 +1,41 @@
 import pool from '../config/db.js';
 
 const Project = {
-  getMarketplaceProjects: async () => {
+  getMarketplaceProjects: async (buyerId = null) => {
+    const params = [];
+    const where = ["p.status IN ('open', 'active')"];
+    if (buyerId) {
+      params.push(buyerId);
+      where.push(`p.buyer_id = $${params.length}`);
+    }
+
     const query = `
       SELECT p.*, 
              u.first_name as buyer_name, 
              u.last_name as buyer_last_name,
+             b.billing_country as buyer_location,
+             COALESCE(fb.rating, 0) as buyer_rating,
+             COALESCE(fb.review_count, 0) as buyer_review_count,
+             COALESCE(b.total_spent, 0) as buyer_total_spent,
+             COALESCE(b.projects_posted, 0) as buyer_projects_posted,
+             COALESCE(b.verified, false) as buyer_verified,
              (SELECT COUNT(*) FROM proposals WHERE project_id = p.id) as proposal_count
       FROM projects p
       JOIN profiles u ON p.buyer_id = u.id
-      WHERE p.status IN ('open', 'active')
+      LEFT JOIN buyers b ON b.id = p.buyer_id
+      LEFT JOIN (
+        SELECT receiver_id,
+               AVG(rating)::numeric(10,2) AS rating,
+               COUNT(*)::int AS review_count
+        FROM feedback
+        WHERE receiver_id IS NOT NULL
+          AND receiver_role = 'buyer'
+        GROUP BY receiver_id
+      ) fb ON fb.receiver_id = p.buyer_id
+      WHERE ${where.join(' AND ')}
       ORDER BY p.created_at DESC;
     `;
-    const { rows } = await pool.query(query);
+    const { rows } = await pool.query(query, params);
     return rows;
   },
 
@@ -39,15 +62,45 @@ const Project = {
         u.first_name || ' ' || u.last_name as buyer_name,
         u.avatar_url as buyer_avatar,
         u.created_at as buyer_joined_at,
+        u.email_verified as buyer_email_verified,
+        COALESCE(fb.rating, 0) as buyer_rating,
+        COALESCE(fb.review_count, 0) as buyer_review_count,
+        COALESCE(b.verified, false) as buyer_verified,
+        COALESCE(b.projects_posted, 0) as buyer_projects_posted,
+        COALESCE(b.total_spent, 0) as buyer_total_spent,
+        COALESCE(b.hires_made, 0) as buyer_hires_made,
+        b.billing_country as buyer_location,
+        (SELECT COUNT(*) FROM proposals WHERE project_id = p.id) as proposal_count,
         json_build_object(
           'id', u.id, 
           'first_name', u.first_name, 
           'last_name', u.last_name, 
           'email', u.email,
-          'avatar', u.avatar_url
+          'avatar_url', u.avatar_url,
+          'location', b.billing_country,
+          'created_at', u.created_at,
+          'rating', COALESCE(fb.rating, 0),
+          'review_count', COALESCE(fb.review_count, 0),
+          'verified', COALESCE(b.verified, false),
+          'verified_payment', COALESCE(b.verified, false),
+          'verified_email', COALESCE(u.email_verified, false),
+          'projects_posted', COALESCE(b.projects_posted, 0),
+          'hires_made', COALESCE(b.hires_made, 0),
+          'total_spent', COALESCE(b.total_spent, 0),
+          'company_name', b.company_name
         ) as buyer
       FROM projects p
       LEFT JOIN profiles u ON p.buyer_id = u.id 
+      LEFT JOIN buyers b ON b.id = p.buyer_id
+      LEFT JOIN (
+        SELECT receiver_id,
+               AVG(rating)::numeric(10,2) AS rating,
+               COUNT(*)::int AS review_count
+        FROM feedback
+        WHERE receiver_id IS NOT NULL
+          AND receiver_role = 'buyer'
+        GROUP BY receiver_id
+      ) fb ON fb.receiver_id = p.buyer_id
       WHERE p.id = $1;
     `;
     const { rows } = await pool.query(sql, [id]);

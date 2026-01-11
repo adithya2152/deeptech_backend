@@ -14,6 +14,9 @@ import invoiceRoutes from "./routes/invoiceRoutes.js";
 import reportRoutes from './routes/reportRoutes.js';
 import disputeRoutes from './routes/disputeRoutes.js';
 import dayWorkSummariesRoutes from "./routes/dayWorkSummariesRoutes.js";
+import invitationRoutes from "./routes/invitationRoutes.js";
+import profileRoutes from './routes/profileRoutes.js';
+import buyerRoutes from './routes/buyerRoutes.js';
 import http from "http";
 import { Server } from "socket.io";
 import { initializeStorageBuckets } from "./utils/storage.js";
@@ -224,6 +227,8 @@ app.get("/", async (req, res) => {
 
 app.use("/api/auth", userAuthRoutes);
 app.use('/api/admin', adminRoutes);
+app.use('/api/profile', profileRoutes);
+app.use('/api/buyers', buyerRoutes);
 app.use("/api/experts", expertRoutes);
 app.use("/api/projects", projectRoutes);
 app.use("/api/chats", messageRoutes);
@@ -234,6 +239,7 @@ app.use("/api/invoices", invoiceRoutes);
 app.use('/api/reports', reportRoutes);
 app.use('/api/disputes', disputeRoutes);
 app.use("/api/day-work-summaries", dayWorkSummariesRoutes);
+app.use("/api/invitations", invitationRoutes);
 
 app.use((req, res) => {
   res.status(404).json({

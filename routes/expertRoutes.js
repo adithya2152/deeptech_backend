@@ -135,15 +135,8 @@ router.post('/documents', auth, upload.single('file'), expertController.uploadEx
 
 router.delete('/documents/:documentId', auth, expertController.deleteExpertDocument);
 
-router.post(
-  '/profile-media',
-  auth,
-  upload.single('file'),
-  expertController.uploadProfileMedia
-);
-
-router.patch('/avatar', auth, expertController.updateAvatar);
-router.patch('/banner', auth, expertController.updateBanner);
+// Dashboard stats route (must be before /:id to avoid conflict)
+router.get('/:id/dashboard-stats', auth, expertController.getDashboardStats);
 
 /**
  * @swagger

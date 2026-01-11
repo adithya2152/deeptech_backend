@@ -1,94 +1,77 @@
 import expertModel from '../models/expertModel.js';
 import { supabase } from '../config/supabase.js';
 import pool from '../config/db.js';
-import path from 'path';
 
+/* =========================
+   SEARCH EXPERTS
+========================= */
 export const searchExperts = async (req, res) => {
   try {
-    const { domain, query, rateMin, rateMax, onlyVerified } = req.query;
+    const { domain, query } = req.query;
 
-    const filters = {
+    const experts = await expertModel.searchExperts({
       domain,
       queryText: query,
-      rateMin: rateMin && !isNaN(rateMin) ? rateMin : null,
-      rateMax: rateMax && !isNaN(rateMax) ? rateMax : null,
-      onlyVerified
-    };
+    });
 
-    const experts = await expertModel.searchExperts(filters);
-    res.status(200).json({ data: experts });
-  } catch (error) {
-    console.error("SEARCH ERROR:", error);
-    res.status(500).json({ error: 'Server error' });
+    res.json({ success: true, data: experts });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ success: false, message: 'Search failed' });
   }
 };
 
+/* =========================
+   SEMANTIC SEARCH
+========================= */
 export const semanticSearch = async (req, res) => {
   try {
-    if (!req.body || !req.body.query) {
-      return res.status(200).json({
-        results: [],
-        query: "",
-        totalResults: 0
-      });
-    }
-
     const { query, limit = 10 } = req.body;
 
-    if (!query || typeof query !== 'string' || query.trim().length === 0) {
-      return res.status(400).json({
-        error: 'Query is required and must be a non-empty string'
-      });
+    if (!query?.trim()) {
+      return res.json({ results: [], totalResults: 0 });
     }
 
-    const searchResults = await callSemanticSearchService(query, limit);
+    const response = await callSemanticSearchService(query, limit);
 
-    const resultsArray = Array.isArray(searchResults?.results)
-      ? searchResults.results
-      : [];
-
-    const transformedResults = resultsArray.map(expert => ({
-      id: expert.id,
-      name: expert.name,
-      email: expert.email,
-      bio: expert.bio,
-      experience_summary: expert.bio,
-
-      domains: expert.domains || [],
-      skills: expert.skills || [],
-
-      rating: expert.rating,
-      review_count: expert.review_count,
-      total_hours: expert.total_hours,
-      availability: expert.availability,
+    const results = (response.results || []).map(e => ({
+      id: e.id,
+      name: e.name || '',
+      experience_summary: e.bio || '',
+      domains: e.domains || [],
+      skills: e.skills || [],
+      rating: e.rating,
+      review_count: e.review_count,
+      total_hours: e.total_hours,
+      availability_status: e.availability,
     }));
 
-
-    res.status(200).json({
-      results: transformedResults,
-      query: query,
-      totalResults: transformedResults.length
+    res.json({
+      results,
+      totalResults: results.length,
+      query,
     });
-
-  } catch (error) {
-    console.error("SEMANTIC SEARCH ERROR:", error);
-    res.status(500).json({
-      error: 'Semantic search service unavailable',
-      details: process.env.NODE_ENV === 'development' ? error.message : undefined
-    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Semantic search failed' });
   }
 };
 
+/* =========================
+   GET EXPERT BY ID
+========================= */
 export const getExpertById = async (req, res) => {
   try {
     const { id } = req.params;
 
     const expert = await expertModel.getExpertById(id);
-    if (!expert) return res.status(404).json({ error: 'Expert not found' });
+    if (!expert) {
+      return res.status(404).json({ message: 'Expert not found' });
+    }
 
     const { rows: documents } = await pool.query(
       `
-      SELECT id, expert_id, document_type, sub_type, title, url, is_public, created_at
+      SELECT id, document_type, sub_type, title, url, is_public, created_at
       FROM expert_documents
       WHERE expert_id = $1
       ORDER BY created_at DESC
@@ -96,132 +79,121 @@ export const getExpertById = async (req, res) => {
       [id]
     );
 
-    res.status(200).json({ data: { ...expert, documents } });
-  } catch (error) {
-    console.error("GET ID ERROR:", error);
-    res.status(500).json({ error: 'Server error' });
+    res.json({ success: true, data: { ...expert, documents } });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Failed to fetch expert' });
   }
 };
 
+/* =========================
+   UPDATE EXPERT PROFILE
+========================= */
 export const updateExpertProfile = async (req, res) => {
   try {
-    const { id } = req.params;
+    const expertId = req.params.id;
 
-    if (!req.user || req.user.id !== id) {
-      return res.status(403).json({
-        success: false,
-        message: 'Unauthorized',
-      });
+    if (req.user.id !== expertId || req.user.role !== 'expert') {
+      return res.status(403).json({ message: 'Unauthorized' });
     }
 
-    // Dynamic update for profile images (avatar/banner)
-    const mediaUpdates = [];
-    const mediaValues = [];
-    let queryIndex = 1;
+    /* profiles table */
+    const profileFields = ['avatar_url', 'banner_url', 'country', 'timezone'];
+    const updates = [];
+    const values = [];
+    let i = 1;
 
-    // Use hasOwnProperty to strictly check if the key was sent in the request.
-    // If sent (even as null), we update it. If not sent (undefined), we ignore it.
-    if (req.body.avatar_url !== undefined) {
-      mediaUpdates.push(`avatar_url = $${queryIndex++}`);
-      mediaValues.push(req.body.avatar_url);
+    for (const field of profileFields) {
+      if (req.body[field] !== undefined) {
+        updates.push(`${field} = $${i++}`);
+        values.push(req.body[field]);
+      }
     }
 
-    if (req.body.banner_url !== undefined) {
-      mediaUpdates.push(`banner_url = $${queryIndex++}`);
-      mediaValues.push(req.body.banner_url);
-    }
-
-    if (mediaUpdates.length > 0) {
-      mediaValues.push(id);
+    if (updates.length) {
+      values.push(expertId);
       await pool.query(
-        `UPDATE profiles SET ${mediaUpdates.join(', ')} WHERE id = $${queryIndex}`,
-        mediaValues
+        `UPDATE profiles SET ${updates.join(', ')}, updated_at = NOW() WHERE id = $${i}`,
+        values
       );
     }
 
-    // Update other expert fields
-    const updatedExpert = await expertModel.updateExpertById(id, req.body);
-    
-    // Return success even if expertModel returns null (e.g. if no expert-specific fields were updated)
-    res.status(200).json({
+    /* experts table */
+    const updatedExpert = await expertModel.updateExpertById(expertId, req.body);
+
+    res.json({
       success: true,
-      data: updatedExpert || { id },
-      message: 'Profile updated'
+      data: updatedExpert || {},
+      message: 'Expert profile updated',
     });
-  } catch (error) {
-    console.error('UPDATE EXPERT ERROR:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to update expert profile',
-    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Update failed' });
   }
 };
 
+/* =========================
+   RESUME SIGNED URL
+========================= */
 export const getResumeSignedUrl = async (req, res) => {
   try {
     const userId = req.user.id;
 
     const { rows } = await pool.query(
       `
-      SELECT url
-      FROM expert_documents
+      SELECT url FROM expert_documents
       WHERE expert_id = $1 AND document_type = 'resume'
-      ORDER BY created_at DESC
-      LIMIT 1
+      ORDER BY created_at DESC LIMIT 1
       `,
       [userId]
     );
 
-    const resumePath = rows[0]?.url;
-
-    if (!resumePath) {
+    if (!rows.length) {
       return res.status(404).json({ message: 'No resume uploaded' });
     }
 
-    const { data, error } = await supabase.storage
+    const { data } = await supabase.storage
       .from('expert-private-documents')
-      .createSignedUrl(resumePath, 60 * 5); // 5 min
-
-    if (error) throw error;
+      .createSignedUrl(rows[0].url, 300);
 
     res.json({ url: data.signedUrl });
   } catch (err) {
     console.error(err);
-    res.status(500).json({ message: 'Failed to generate resume link' });
+    res.status(500).json({ message: 'Failed to generate link' });
   }
 };
 
+/* =========================
+   UPLOAD DOCUMENT
+========================= */
 export const uploadExpertDocument = async (req, res) => {
   try {
-    if (!req.user?.id) {
-      return res.status(401).json({ message: 'Unauthorized' });
+    if (req.user.role !== 'expert') {
+      return res.status(403).json({ message: 'Only experts allowed' });
     }
 
-    const userId = req.user.id;
     const { type, sub_type, title, url, is_public = true } = req.body;
     const file = req.file;
+    const userId = req.user.id;
 
-    const allowedTypes = ['resume', 'work', 'publication', 'credential', 'other'];
-    if (!allowedTypes.includes(type)) {
-      return res.status(400).json({ message: 'Invalid document type' });
+    const allowed = ['resume', 'work', 'publication', 'credential', 'other'];
+    if (!allowed.includes(type)) {
+      return res.status(400).json({ message: 'Invalid type' });
     }
 
-    let finalUrl = null;
+    let finalUrl = url;
 
-    if (['resume', 'publication', 'credential'].includes(type)) {
-      if (!file) return res.status(400).json({ message: 'File required' });
-
+    if (file) {
       const bucket =
-        type === 'resume' ? 'expert-private-documents' : 'expert-public-documents';
+        type === 'resume'
+          ? 'expert-private-documents'
+          : 'expert-public-documents';
 
       const filePath = `experts/${userId}/${type}/${Date.now()}-${file.originalname}`;
 
-      const { error } = await supabase.storage.from(bucket).upload(filePath, file.buffer, {
+      await supabase.storage.from(bucket).upload(filePath, file.buffer, {
         contentType: file.mimetype,
-        upsert: false,
       });
-
-      if (error) return res.status(500).json({ message: error.message });
 
       finalUrl =
         type === 'resume'
@@ -229,173 +201,122 @@ export const uploadExpertDocument = async (req, res) => {
           : supabase.storage.from(bucket).getPublicUrl(filePath).data.publicUrl;
     }
 
-    if (['work', 'other'].includes(type)) {
-      if (!url) return res.status(400).json({ message: 'URL required' });
-      finalUrl = url;
-    }
-
-    const insertRes = await pool.query(
+    const { rows } = await pool.query(
       `
       INSERT INTO expert_documents
       (expert_id, document_type, sub_type, title, url, is_public)
-      VALUES ($1, $2, $3, $4, $5, $6)
+      VALUES ($1,$2,$3,$4,$5,$6)
       RETURNING *
       `,
-      [userId, type, sub_type || null, title || null, finalUrl, is_public]
+      [userId, type, sub_type, title, finalUrl, is_public]
     );
 
-    const insertedDoc = insertRes.rows[0];
-
-    if (type === 'resume') {
-      await pool.query(
-        `
-        DELETE FROM expert_documents
-        WHERE expert_id = $1
-          AND document_type = 'resume'
-          AND id <> $2
-        `,
-        [userId, insertedDoc.id]
-      );
-    }
-
-    res.json({ success: true, data: insertedDoc });
-  } catch (error) {
-    console.error('UPLOAD DOCUMENT ERROR:', error);
+    res.json({ success: true, data: rows[0] });
+  } catch (err) {
+    console.error(err);
     res.status(500).json({ message: 'Upload failed' });
   }
 };
 
+/* =========================
+   DELETE DOCUMENT
+========================= */
 export const deleteExpertDocument = async (req, res) => {
   try {
-    const userId = req.user.id;
     const { documentId } = req.params;
+    const userId = req.user.id;
 
-    const { rows } = await pool.query(
-      `
-      SELECT * FROM expert_documents
-      WHERE id = $1 AND expert_id = $2
-      `,
+    const { rowCount } = await pool.query(
+      `DELETE FROM expert_documents WHERE id = $1 AND expert_id = $2`,
       [documentId, userId]
     );
 
-    if (rows.length === 0) {
-      return res.status(404).json({ message: 'Document not found' });
+    if (!rowCount) {
+      return res.status(404).json({ message: 'Not found' });
     }
-
-    const doc = rows[0];
-
-    if (['resume', 'publication', 'credential'].includes(doc.document_type)) {
-      const bucket =
-        doc.document_type === 'resume'
-          ? 'expert-private-documents'
-          : 'expert-public-documents';
-
-      const filePath =
-        doc.document_type === 'resume'
-          ? doc.url
-          : doc.url.split(`${bucket}/`)[1];
-
-      if (filePath) {
-        await supabase.storage.from(bucket).remove([filePath]);
-      }
-    }
-
-    await pool.query(
-      `DELETE FROM expert_documents WHERE id = $1`,
-      [documentId]
-    );
 
     res.json({ success: true });
-
-  } catch (error) {
-    console.error('DELETE DOCUMENT ERROR:', error);
+  } catch (err) {
+    console.error(err);
     res.status(500).json({ message: 'Delete failed' });
   }
 };
-export const updateAvatar = async (req, res) => {
+
+/* =========================
+   DASHBOARD STATS
+========================= */
+export const getDashboardStats = async (req, res) => {
   try {
-    const userId = req.user.id;
-    const { avatar_url } = req.body;
+    const expertId = req.params.id;
 
-    await pool.query(
-      `UPDATE profiles SET avatar_url = $1 WHERE id = $2`,
-      [avatar_url, userId]
-    );
+    // Get total earnings from released_total
+    const { rows: totalRows } = await pool.query(`
+      SELECT COALESCE(SUM(released_total), 0) AS total
+      FROM contracts
+      WHERE expert_id = $1
+    `, [expertId]);
 
-    res.json({ success: true });
-  } catch (err) {
-    res.status(500).json({ message: 'Failed to update avatar' });
-  }
-};
+    // Get monthly earnings for chart (last 6 months)
+    const { rows: monthlyRows } = await pool.query(`
+      SELECT 
+        TO_CHAR(date_trunc('month', created_at), 'Mon') AS name,
+        COALESCE(SUM(released_total), 0) AS value
+      FROM contracts
+      WHERE expert_id = $1
+        AND created_at >= NOW() - INTERVAL '6 months'
+      GROUP BY date_trunc('month', created_at)
+      ORDER BY date_trunc('month', created_at)
+    `, [expertId]);
 
-export const updateBanner = async (req, res) => {
-  try {
-    const userId = req.user.id;
-    const { banner_url } = req.body;
+    // Calculate trend: compare this month vs last month earnings
+    const { rows: trendRows } = await pool.query(`
+      SELECT 
+        COALESCE(SUM(CASE WHEN created_at >= date_trunc('month', NOW()) THEN released_total ELSE 0 END), 0) AS this_month,
+        COALESCE(SUM(CASE WHEN created_at >= date_trunc('month', NOW() - INTERVAL '1 month') 
+                          AND created_at < date_trunc('month', NOW()) THEN released_total ELSE 0 END), 0) AS last_month
+      FROM contracts
+      WHERE expert_id = $1
+    `, [expertId]);
 
-    await pool.query(
-      `UPDATE profiles SET banner_url = $1 WHERE id = $2`,
-      [banner_url, userId]
-    );
-
-    res.json({ success: true });
-  } catch (err) {
-    res.status(500).json({ message: 'Failed to update banner' });
-  }
-};
-
-export const uploadProfileMedia = async (req, res) => {
-  try {
-    const userId = req.user.id;
-    const { type } = req.query;
-    const file = req.file;
-
-    if (!['avatar', 'banner'].includes(type)) {
-      return res.status(400).json({ message: 'Invalid type' });
+    const thisMonth = parseFloat(trendRows[0].this_month) || 0;
+    const lastMonth = parseFloat(trendRows[0].last_month) || 0;
+    let trendPercentage = 0;
+    if (lastMonth > 0) {
+      trendPercentage = Math.round(((thisMonth - lastMonth) / lastMonth) * 100);
+    } else if (thisMonth > 0) {
+      trendPercentage = 100; // If no last month data but has this month, show +100%
     }
-    if (!file) {
-      return res.status(400).json({ message: 'No file uploaded' });
-    }
 
-    const folder = type === 'avatar' ? 'avatars' : 'banners';
-    const ext = path.extname(file.originalname);
-    const filePath = `${folder}/${userId}${ext}`;
-
-    const { error } = await supabase.storage
-      .from('profile-media')
-      .upload(filePath, file.buffer, {
-        contentType: file.mimetype,
-        upsert: true,
-      });
-    if (error) throw error;
-
-    const { data } = supabase.storage
-      .from('profile-media')
-      .getPublicUrl(filePath);
-
-    res.json({ success: true, url: data.publicUrl });
+    res.json({
+      success: true,
+      data: {
+        totalEarnings: parseFloat(totalRows[0].total) || 0,
+        earningsChart: monthlyRows.map(row => ({
+          name: row.name,
+          value: parseFloat(row.value) || 0
+        })),
+        trendPercentage
+      }
+    });
   } catch (err) {
-    res.status(500).json({ message: err.message || 'Upload failed' });
+    console.error(err);
+    res.status(500).json({ message: 'Failed to fetch dashboard stats' });
   }
 };
 
+/* =========================
+   SEMANTIC SERVICE
+========================= */
 async function callSemanticSearchService(query, limit) {
-  const PYTHON_SERVICE_URL =
-    process.env.PYTHON_SEMANTIC_SEARCH_URL || 'http://127.0.0.1:8000';
-
-  const response = await fetch(`${PYTHON_SERVICE_URL}/search`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({ query, limit }),
-  });
-
-  if (!response.ok) {
-    throw new Error(`Python service returned ${response.status}`);
-  }
-
-  return response.json();
+  const res = await fetch(
+    `${process.env.PYTHON_SEMANTIC_SEARCH_URL}/search`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query, limit }),
+    }
+  );
+  return res.json();
 }
 
 export default {
@@ -406,7 +327,5 @@ export default {
   getResumeSignedUrl,
   uploadExpertDocument,
   deleteExpertDocument,
-  updateAvatar,
-  updateBanner,
-  uploadProfileMedia
+  getDashboardStats,
 };

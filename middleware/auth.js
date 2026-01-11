@@ -21,7 +21,16 @@ const auth = async (req, res, next) => {
   try {
     const decoded = jwt.verify(token, jwtSecret);
 
-    const query = 'SELECT is_banned, ban_reason FROM profiles WHERE id = $1';
+    // Protected routes must use access tokens only
+    if (decoded?.type && decoded.type !== "access") {
+      return res.status(401).json({
+        success: false,
+        message: "Invalid token type.",
+        code: "INVALID_TOKEN_TYPE",
+      });
+    }
+    
+    const query = 'SELECT is_banned, ban_reason, role FROM profiles WHERE id = $1';
     const { rows } = await pool.query(query, [decoded.id]);
 
     if (rows.length === 0) {
@@ -37,6 +46,15 @@ const auth = async (req, res, next) => {
         message: "Your account has been suspended.",
         reason: rows[0].ban_reason,
         code: "USER_BANNED"
+      });
+    }
+
+    // Prevent using stale tokens after role switching
+    if (decoded?.role && rows[0].role && decoded.role !== rows[0].role) {
+      return res.status(401).json({
+        success: false,
+        message: "Role changed. Please refresh your session.",
+        code: "ROLE_CHANGED",
       });
     }
 

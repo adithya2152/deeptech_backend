@@ -1,4 +1,5 @@
 import jwt from "jsonwebtoken";
+import path from "path";
 import { supabase } from "../config/supabase.js";
 import pool from "../config/db.js";
 
@@ -146,19 +147,24 @@ export const register = async (req, res) => {
     if (role === 'expert') {
       const expertDomains = Array.isArray(domains) && domains.length > 0
         ? domains
-        : ['general'];
+        : [];
 
       await pool.query(
         `INSERT INTO experts (
-          id, domains, experience_summary, 
-          hourly_rate_advisory, hourly_rate_architecture, hourly_rate_execution
-        ) VALUES ($1, $2, $3, $4, $5, $6)`,
+          id, domains, experience_summary
+        ) VALUES ($1, $2, $3)`,
         [
           userId,
           expertDomains,
-          `Expert in ${expertDomains.join(', ')} ready for deep-tech projects`,
-          50, 75, 100
+          `Expert in ${expertDomains.join(', ')} ready for deep-tech projects`
         ]
+      );
+    } else if (role === 'buyer') {
+      // Ensure buyer row exists for buyer-specific profile fields
+      await pool.query(
+        `INSERT INTO buyers (id) VALUES ($1)
+         ON CONFLICT (id) DO NOTHING`,
+        [userId]
       );
     }
 
@@ -217,7 +223,7 @@ export const login = async (req, res) => {
     const userId = authData.user.id;
 
     const result = await pool.query(
-      "SELECT id, email, first_name, last_name, role, avatar_url, created_at, is_banned, ban_reason FROM profiles WHERE id = $1",
+      "SELECT id, email, first_name, last_name, role, avatar_url, banner_url, profile_completion, is_banned, ban_reason FROM profiles WHERE id = $1",
       [userId]
     );
 
@@ -260,7 +266,8 @@ export const login = async (req, res) => {
           last_name: user.last_name,
           role: user.role,
           avatar_url: user.avatar_url,
-          created_at: user.created_at,
+          banner_url: user.banner_url,
+          profile_completion: user.profile_completion,
         },
         tokens: {
           accessToken,
@@ -392,7 +399,8 @@ export const getCurrentUser = async (req, res) => {
     }
 
     const result = await pool.query(
-      `SELECT id, email, first_name, last_name, role, avatar_url, created_at, last_login 
+      `SELECT id, email, first_name, last_name, role, avatar_url, banner_url, timezone,
+              profile_completion, created_at, last_login
        FROM profiles WHERE id = $1`,
       [userId]
     );
@@ -416,6 +424,9 @@ export const getCurrentUser = async (req, res) => {
           last_name: user.last_name,
           role: user.role,
           avatar_url: user.avatar_url,
+          banner_url: user.banner_url,
+          timezone: user.timezone,
+          profile_completion: user.profile_completion,
           created_at: user.created_at,
           last_login: user.last_login,
         },
@@ -441,7 +452,7 @@ export const updateCurrentUser = async (req, res) => {
       });
     }
 
-    const { first_name, last_name, avatar_url, banner_url } = req.body;
+    const { first_name, last_name, avatar_url, banner_url, timezone } = req.body;
 
     const result = await pool.query(
       `
@@ -451,11 +462,12 @@ export const updateCurrentUser = async (req, res) => {
         last_name  = COALESCE($2, last_name),
         avatar_url = COALESCE($3, avatar_url),
         banner_url = COALESCE($4, banner_url),
+        timezone   = COALESCE($5, timezone),
         updated_at = NOW()
-      WHERE id = $5
-      RETURNING id, email, first_name, last_name, role, avatar_url, banner_url, created_at
+      WHERE id = $6
+      RETURNING id, email, first_name, last_name, role, avatar_url, banner_url, timezone, created_at
       `,
-      [first_name, last_name, avatar_url, banner_url, userId]
+      [first_name, last_name, avatar_url, banner_url, timezone, userId]
     );
 
     if (result.rows.length === 0) {
@@ -471,6 +483,117 @@ export const updateCurrentUser = async (req, res) => {
     return res.status(500).json({
       success: false,
       message: "Failed to update profile",
+    });
+  }
+};
+
+/* ================= PROFILE MEDIA ================= */
+
+export const uploadProfileMedia = async (req, res) => {
+  try {
+    const userId = req.user?.id;
+    const typeRaw = req.query?.type;
+    const type = typeof typeRaw === 'string' ? typeRaw : String(typeRaw || ''); // avatar | banner
+    const file = req.file;
+
+    if (!userId) {
+      return res.status(401).json({ success: false, message: 'Unauthorized' });
+    }
+
+    if (!file) {
+      return res.status(400).json({ success: false, message: "File required" });
+    }
+
+    if (!["avatar", "banner"].includes(type)) {
+      return res.status(400).json({ success: false, message: "Invalid media type" });
+    }
+
+    const ext = path.extname(file.originalname);
+    const filePath = `profiles/${userId}/${type}${ext}`;
+
+    const uploadResult = await supabase.storage
+      .from("profile-media")
+      .upload(filePath, file.buffer, {
+        upsert: true,
+        contentType: file.mimetype,
+      });
+
+    if (uploadResult.error) {
+      console.error('Supabase upload error:', uploadResult.error);
+      return res.status(500).json({ success: false, message: uploadResult.error.message || JSON.stringify(uploadResult.error) });
+    }
+
+    const { data } = supabase.storage
+      .from("profile-media")
+      .getPublicUrl(filePath);
+
+    if (!data || !data.publicUrl) {
+      console.error('Supabase publicUrl missing for', filePath, uploadResult);
+      return res.status(500).json({ success: false, message: 'Failed to obtain public URL after upload' });
+    }
+
+    await pool.query(
+      `UPDATE profiles SET ${type}_url = $1, updated_at = NOW() WHERE id = $2`,
+      [data.publicUrl, userId]
+    );
+
+    res.json({ success: true, url: data.publicUrl });
+  } catch (err) {
+    console.error('uploadProfileMedia error:', err);
+    const message = err && err.message ? err.message : String(err);
+    res.status(500).json({ success: false, message });
+  }
+};
+
+/* ================= SWITCH ROLE (BIDIRECTIONAL) ================= */
+export const switchRole = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const email = req.user.email;
+    const currentRole = req.user.role;
+
+    const newRole = currentRole === "buyer" ? "expert" : "buyer";
+
+    if (newRole === "expert") {
+      await pool.query(
+        `
+        INSERT INTO experts (id, domains, experience_summary)
+        VALUES ($1, $2, $3)
+        ON CONFLICT (id) DO NOTHING
+        `,
+        [userId, [], "New expert profile"]
+      );
+    }
+
+    if (newRole === "buyer") {
+      await pool.query(
+        `
+        INSERT INTO buyers (id)
+        VALUES ($1)
+        ON CONFLICT (id) DO NOTHING
+        `,
+        [userId]
+      );
+    }
+
+    await pool.query(
+      `UPDATE profiles SET role = $1 WHERE id = $2`,
+      [newRole, userId]
+    );
+
+    const tokens = generateTokens(userId, email, newRole);
+
+    return res.json({
+      success: true,
+      data: {
+        role: newRole,
+        tokens,
+      },
+    });
+  } catch (err) {
+    return res.status(500).json({
+      success: false,
+      message: err.message,
     });
   }
 };

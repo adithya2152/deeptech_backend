@@ -6,6 +6,7 @@ const BUCKETS = {
   PROPOSALS: "proposals",
   CONTRACTS: "contracts",
   PROJECTS: "projects",
+  PROFILE_MEDIA: "profile-media",
   CHAT_FILES: "chat-files",
 };
 
@@ -23,11 +24,12 @@ export const initializeStorageBuckets = async () => {
       const bucketExists = buckets?.some((b) => b.name === bucketName);
 
       if (!bucketExists) {
-        // Create bucket with public access for read
+        // Decide public flag: make profile-media public for easy public URLs
+        const isProfileMedia = bucketName === BUCKETS.PROFILE_MEDIA;
         const { data, error } = await supabase.storage.createBucket(
           bucketName,
           {
-            public: false, // Private by default, use signed URLs
+            public: isProfileMedia, // profile-media public so getPublicUrl works
             fileSizeLimit: 52428800, // 50MB
             allowedMimeTypes: [
               "image/*",

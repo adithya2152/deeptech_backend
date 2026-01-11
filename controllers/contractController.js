@@ -1,10 +1,8 @@
 import { body, validationResult } from "express-validator";
 import Contract from "../models/contractModel.js";
-import Proposal from "../models/proposalModel.js";
 import Invoice from "../models/invoiceModel.js";
 import pool from "../config/db.js";
 
-// Validation middleware
 export const validateContractCreation = [
   body("expert_id").isUUID().withMessage("Valid expert ID is required"),
   body("project_id").isUUID().withMessage("Valid project ID is required"),
@@ -24,7 +22,6 @@ export const validateNdaSigning = [
     .withMessage("Signature name is required"),
 ];
 
-// Create a new contract (Buyer hires Expert)
 export const createContract = async (req, res) => {
   try {
     const errors = validationResult(req);
@@ -41,7 +38,14 @@ export const createContract = async (req, res) => {
       start_date,
     } = req.body;
 
-    // Verify project exists and user owns it
+    if (expert_id === buyerId) {
+      return res.status(400).json({
+        success: false,
+        message: "You cannot create a contract with yourself",
+        code: "SELF_CONTRACT_NOT_ALLOWED",
+      });
+    }
+
     const projectCheck = await pool.query(
       "SELECT id, buyer_id FROM projects WHERE id = $1",
       [project_id]
@@ -61,7 +65,6 @@ export const createContract = async (req, res) => {
       });
     }
 
-    // Validate payment_terms structure
     if (!validatePaymentTerms(engagement_model, payment_terms)) {
       return res.status(400).json({
         success: false,
@@ -69,8 +72,6 @@ export const createContract = async (req, res) => {
       });
     }
 
-
-    // Check if a non-final contract already exists for this project + expert
     const existingContract =
       await Contract.findActiveOrPendingForPair(project_id, expert_id);
 
@@ -82,7 +83,6 @@ export const createContract = async (req, res) => {
       });
     }
 
-    // Create contract
     const contract = await Contract.createContract({
       project_id,
       buyer_id: buyerId,
@@ -92,13 +92,11 @@ export const createContract = async (req, res) => {
       start_date,
     });
 
-    // Update proposal status if exists
     await pool.query(
       "UPDATE proposals SET status = $1, updated_at = NOW() WHERE project_id = $2 AND expert_id = $3 AND status = $4",
       ["accepted", project_id, expert_id, "pending"]
     );
 
-    // Decline other pending proposals for the same project
     await pool.query(
       "UPDATE proposals SET status = $1, updated_at = NOW() WHERE project_id = $2 AND expert_id <> $3 AND status = $4",
       ["rejected", project_id, expert_id, "pending"]
@@ -120,7 +118,6 @@ export const createContract = async (req, res) => {
   }
 };
 
-// Accept contract and sign NDA (Expert only)
 export const acceptAndSignNda = async (req, res) => {
   try {
     const errors = validationResult(req);
@@ -134,7 +131,6 @@ export const acceptAndSignNda = async (req, res) => {
     const ipAddress =
       req.ip || req.headers["x-forwarded-for"] || req.connection.remoteAddress;
 
-    // Get contract
     const contract = await Contract.getById(contractId);
     if (!contract) {
       return res.status(404).json({
@@ -143,7 +139,6 @@ export const acceptAndSignNda = async (req, res) => {
       });
     }
 
-    // Verify expert is the one on the contract
     if (contract.expert_id !== expertId) {
       return res.status(403).json({
         success: false,
@@ -151,7 +146,6 @@ export const acceptAndSignNda = async (req, res) => {
       });
     }
 
-    // Verify contract is in pending status
     if (contract.status !== "pending") {
       return res.status(400).json({
         success: false,
@@ -159,7 +153,6 @@ export const acceptAndSignNda = async (req, res) => {
       });
     }
 
-    // Verify NDA is not already signed
     if (contract.nda_signed_at !== null) {
       return res.status(400).json({
         success: false,
@@ -167,14 +160,12 @@ export const acceptAndSignNda = async (req, res) => {
       });
     }
 
-    // Sign NDA and activate contract
     const activatedContract = await Contract.signNdaAndActivate(
       contractId,
       signature_name,
       ipAddress
     );
 
-    // Update project status to active
     await pool.query("UPDATE projects SET status = $1 WHERE id = $2", [
       "active",
       contract.project_id,
@@ -226,7 +217,6 @@ export const updateNda = async (req, res) => {
   }
 };
 
-// Get contract by ID
 export const getContractById = async (req, res) => {
   try {
     const { contractId } = req.params;
@@ -241,7 +231,6 @@ export const getContractById = async (req, res) => {
       });
     }
 
-    // Check access: buyer or expert or admin
     if (
       contract.buyer_id !== userId &&
       contract.expert_id !== userId &&
@@ -267,7 +256,6 @@ export const getContractById = async (req, res) => {
   }
 };
 
-// Get all contracts for current user
 export const getMyContracts = async (req, res) => {
   try {
     const userId = req.user.id;
@@ -298,7 +286,6 @@ export const getMyContracts = async (req, res) => {
   }
 };
 
-// Get all contracts for a project
 export const getProjectContracts = async (req, res) => {
   try {
     const { projectId } = req.params;
@@ -319,7 +306,6 @@ export const getProjectContracts = async (req, res) => {
   }
 };
 
-// Decline contract (Expert only)
 export const declineContract = async (req, res) => {
   try {
     const { contractId } = req.params;
@@ -347,13 +333,11 @@ export const declineContract = async (req, res) => {
       });
     }
 
-    // 1) Update contract status to declined
     await pool.query("UPDATE contracts SET status = $1 WHERE id = $2", [
       "declined",
       contractId,
     ]);
 
-    // 2) Re-open this expert's proposal for that project (regardless of current status)
     await pool.query(
       `
       UPDATE proposals
@@ -379,7 +363,6 @@ export const declineContract = async (req, res) => {
   }
 };
 
-// Get invoices for a contract
 export const getContractInvoices = async (req, res) => {
   try {
     const { contractId } = req.params;
@@ -421,7 +404,6 @@ export const getContractInvoices = async (req, res) => {
   }
 };
 
-// Helper function to validate payment terms structure
 function validatePaymentTerms(engagementModel, paymentTerms) {
   switch (engagementModel) {
     case "daily":
@@ -446,7 +428,6 @@ function validatePaymentTerms(engagementModel, paymentTerms) {
   }
 }
 
-// Fund escrow (Buyer or Admin only)
 export const fundEscrow = async (req, res) => {
   try {
     const { contractId } = req.params;
@@ -454,7 +435,6 @@ export const fundEscrow = async (req, res) => {
     const userId = req.user.id;
     const userRole = req.user.role;
 
-    // Validate amount
     if (!amount || amount <= 0) {
       return res.status(400).json({
         success: false,
@@ -462,7 +442,6 @@ export const fundEscrow = async (req, res) => {
       });
     }
 
-    // Get contract
     const contract = await Contract.getById(contractId);
     if (!contract) {
       return res.status(404).json({
@@ -471,7 +450,6 @@ export const fundEscrow = async (req, res) => {
       });
     }
 
-    // Check authorization: buyer or admin
     if (contract.buyer_id !== userId && userRole !== "admin") {
       return res.status(403).json({
         success: false,
@@ -479,7 +457,6 @@ export const fundEscrow = async (req, res) => {
       });
     }
 
-    // Fund escrow
     const updatedContract = await Contract.fundEscrow(contractId, amount);
 
     return res.status(200).json({
@@ -497,14 +474,12 @@ export const fundEscrow = async (req, res) => {
   }
 };
 
-// Complete contract (Buyer or Admin only)
 export const completeContract = async (req, res) => {
   try {
     const { id } = req.params;
     const userId = req.user.id;
     const userRole = req.user.role;
 
-    // Get contract
     const contract = await Contract.getById(id);
     if (!contract) {
       return res.status(404).json({
@@ -513,7 +488,6 @@ export const completeContract = async (req, res) => {
       });
     }
 
-    // Check authorization: buyer or admin
     if (contract.buyer_id !== userId && userRole !== "admin") {
       return res.status(403).json({
         success: false,
@@ -521,7 +495,6 @@ export const completeContract = async (req, res) => {
       });
     }
 
-    // Validate contract status allows completion
     if (contract.status !== "active") {
       return res.status(400).json({
         success: false,
@@ -529,7 +502,6 @@ export const completeContract = async (req, res) => {
       });
     }
 
-    // If fixed engagement model, create final invoice
     if (contract.engagement_model === "fixed") {
       try {
         const paymentTerms =
@@ -545,11 +517,9 @@ export const completeContract = async (req, res) => {
         });
       } catch (invoiceError) {
         console.error("Final invoice creation error:", invoiceError);
-        // Continue with completion even if invoice fails
       }
     }
 
-    // Update contract status to completed
     const updatedContract = await Contract.updateStatus(id, "completed");
 
     return res.status(200).json({
@@ -567,7 +537,6 @@ export const completeContract = async (req, res) => {
   }
 };
 
-// Finish sprint (Buyer or Admin only) - for sprint engagement model
 export const finishSprint = async (req, res) => {
   try {
     const { id } = req.params;
@@ -582,7 +551,6 @@ export const finishSprint = async (req, res) => {
       });
     }
 
-    // Only sprint contracts
     if (contract.engagement_model !== "sprint") {
       return res.status(400).json({
         success: false,
@@ -590,7 +558,6 @@ export const finishSprint = async (req, res) => {
       });
     }
 
-    // Check authorization: buyer or admin
     if (contract.buyer_id !== userId && userRole !== "admin") {
       return res.status(403).json({
         success: false,
@@ -598,7 +565,6 @@ export const finishSprint = async (req, res) => {
       });
     }
 
-    // Verify contract is active
     if (contract.status !== "active") {
       return res.status(400).json({
         success: false,
@@ -618,7 +584,6 @@ export const finishSprint = async (req, res) => {
 
     const totalSprints = paymentTerms.total_sprints || 1;
 
-    // Create invoice for the completed sprint
     try {
       await Invoice.createFromSprint(
         id,
@@ -664,17 +629,74 @@ export const finishSprint = async (req, res) => {
   }
 };
 
+export const submitFeedback = async (req, res) => {
+    try {
+        const { contractId } = req.params;
+        const { rating, comment } = req.body;
+        const giverId = req.user.id;
+
+        const contract = await Contract.getById(contractId);
+        if (!contract) return res.status(404).json({ success: false, message: "Contract not found" });
+        
+        if (contract.status !== "completed") {
+            return res.status(400).json({ success: false, message: "Contract must be completed to leave a review" });
+        }
+
+        let receiverId;
+        if (giverId === contract.buyer_id) receiverId = contract.expert_id;
+        else if (giverId === contract.expert_id) receiverId = contract.buyer_id;
+        else return res.status(403).json({ success: false, message: "Unauthorized" });
+
+        const exists = await Contract.checkFeedbackExists(contractId, giverId);
+
+        if (exists) {
+            return res.status(400).json({ success: false, message: "Feedback already submitted" });
+        }
+
+        const feedback = await Contract.createFeedback(
+            contractId, 
+            giverId, 
+            receiverId, 
+            rating, 
+            comment, 
+            rating >= 4
+        );
+
+        if (receiverId === contract.expert_id) {
+            await Contract.updateExpertRating(receiverId);
+        }
+
+        res.status(201).json({ success: true, data: feedback });
+    } catch (error) {
+        console.error("Submit feedback error:", error);
+        res.status(500).json({ success: false, message: error.message });
+    }
+};
+
+export const getContractFeedback = async (req, res) => {
+    try {
+        const { contractId } = req.params;
+        const feedback = await Contract.getFeedbackByContractId(contractId);
+        res.status(200).json({ success: true, data: feedback });
+    } catch (error) {
+        res.status(500).json({ success: false, message: error.message });
+    }
+};
+
 export default {
-  createContract,
-  acceptAndSignNda,
-  getContractById,
-  getMyContracts,
-  getProjectContracts,
-  declineContract,
-  getContractInvoices,
-  fundEscrow,
-  completeContract,
-  finishSprint,
-  validateContractCreation,
-  validateNdaSigning,
+    createContract, 
+    acceptAndSignNda, 
+    getContractById, 
+    getMyContracts,
+    getProjectContracts, 
+    declineContract, 
+    getContractInvoices, 
+    fundEscrow, 
+    completeContract, 
+    finishSprint, 
+    validateContractCreation, 
+    validateNdaSigning,
+    updateNda, 
+    submitFeedback, 
+    getContractFeedback
 };
