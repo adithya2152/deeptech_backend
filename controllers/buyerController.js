@@ -1,27 +1,42 @@
 import ProfileModel from "../models/profileModel.js";
+import pool from "../config/db.js";
 
 export const getBuyerById = async (req, res) => {
   try {
-    const buyerId = req.params.id;
+    const id = req.params.id;
 
-    const base = await ProfileModel.getBaseProfileById(buyerId);
-    if (!base) {
-      return res.status(404).json({ message: "Client not found" });
+    // Validate id
+    if (!id || id === 'undefined' || id === 'null') {
+      return res.status(400).json({ message: "Valid client ID is required" });
     }
 
-    const buyer = await ProfileModel.getBuyerProfileById(buyerId);
-    if (!buyer) {
-      return res.status(404).json({ message: "Client not found" });
+    // First try to get by profile_id directly
+    let buyer = await ProfileModel.getBuyerByProfileId(id);
+    let base = null;
+
+    if (buyer) {
+      // Got buyer via profile_id, base data is already merged
+      base = buyer;
+    } else {
+      // Try as user_id (legacy support)
+      base = await ProfileModel.getBaseProfileById(id);
+      if (!base) {
+        return res.status(404).json({ message: "Client not found" });
+      }
+      buyer = await ProfileModel.getBuyerProfileById(id);
+      if (!buyer) {
+        return res.status(404).json({ message: "Client not found" });
+      }
     }
 
-    const reviews = await ProfileModel.getUserReviews(buyerId, 'buyer').catch(() => []);
+    const userId = base.user_id || base.id;
+    const reviews = await ProfileModel.getUserReviews(userId, 'buyer').catch(() => []);
     const reviewCount = reviews.length;
     const avgRating = reviewCount
       ? reviews.reduce((sum, r) => sum + Number(r.rating || 0), 0) / reviewCount
       : 0;
 
     // Public-safe payload (do not expose email)
-    // Map some buyer fields to the UI-friendly names currently used in ClientPublicProfile.
     const {
       email: _email,
       ...safeBase
@@ -47,10 +62,16 @@ export const getBuyerById = async (req, res) => {
 
 export const getBuyerStats = async (req, res) => {
   try {
-    const buyerId = req.params.id;
+    const id = req.params.id;
 
-    const base = await ProfileModel.getBaseProfileById(buyerId);
-    const buyer = await ProfileModel.getBuyerProfileById(buyerId);
+    // Try profile_id first, then user_id
+    let buyer = await ProfileModel.getBuyerByProfileId(id);
+    let base = buyer;
+
+    if (!buyer) {
+      base = await ProfileModel.getBaseProfileById(id);
+      buyer = await ProfileModel.getBuyerProfileById(id);
+    }
 
     if (!base || !buyer) {
       return res.status(404).json({ message: "Client not found" });
@@ -78,32 +99,42 @@ export const getBuyerStats = async (req, res) => {
 
 export const getDashboardStats = async (req, res) => {
   try {
-    const buyerId = req.params.id;
+    const id = req.params.id;
 
-    // Get total spent from contracts (escrow_funded_total represents what buyer has paid)
-    const pool = (await import('../config/db.js')).default;
+    // Determine if this is a profile_id or user_id and get the buyer_profile_id
+    let buyerProfileId = id;
 
+    // Check if it's a user_id by looking up the active buyer profile
+    const { rows: profileRows } = await pool.query(
+      `SELECT id FROM profiles WHERE user_id = $1 AND profile_type = 'buyer' LIMIT 1`,
+      [id]
+    );
+    if (profileRows.length > 0) {
+      buyerProfileId = profileRows[0].id;
+    }
+
+    // Get total spent from contracts using buyer_profile_id
     const { rows: spentRows } = await pool.query(`
       SELECT COALESCE(SUM(escrow_funded_total), 0) AS total_spent
       FROM contracts
-      WHERE buyer_id = $1
-    `, [buyerId]);
+      WHERE buyer_profile_id = $1
+    `, [buyerProfileId]);
 
     // Count unique experts hired (contracts that reached active or completed status)
     const { rows: hiredRows } = await pool.query(`
-      SELECT COUNT(DISTINCT expert_id) AS experts_hired
+      SELECT COUNT(DISTINCT expert_profile_id) AS experts_hired
       FROM contracts
-      WHERE buyer_id = $1
+      WHERE buyer_profile_id = $1
         AND status IN ('active', 'completed')
-    `, [buyerId]);
+    `, [buyerProfileId]);
 
     // Count completed projects
     const { rows: completedRows } = await pool.query(`
       SELECT COUNT(*) AS completed_count
       FROM contracts
-      WHERE buyer_id = $1
+      WHERE buyer_profile_id = $1
         AND status = 'completed'
-    `, [buyerId]);
+    `, [buyerProfileId]);
 
     return res.json({
       success: true,

@@ -7,12 +7,50 @@ const jwtSecret = process.env.JWT_SECRET;
 const jwtExpiry = process.env.JWT_EXPIRY || "24h";
 const refreshTokenExpiry = process.env.REFRESH_TOKEN_EXPIRY || "7d";
 
-const generateTokens = (userId, email, role = "buyer") => {
+// Helper to get active profile for a user from profiles table
+const getActiveProfile = async (userId) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT id, profile_type, is_active 
+       FROM profiles 
+       WHERE user_id = $1 AND is_active = true
+       LIMIT 1`,
+      [userId]
+    );
+    return rows[0] || null;
+  } catch (err) {
+    console.error('[getActiveProfile] Error:', err);
+    return null;
+  }
+};
+
+// Helper to get all profiles for a user
+const getAllProfiles = async (userId) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT id, profile_type, is_active FROM profiles WHERE user_id = $1`,
+      [userId]
+    );
+    return rows;
+  } catch (err) {
+    console.error('[getAllProfiles] Error:', err);
+    return [];
+  }
+};
+
+// Helper to determine the active role
+const getActiveRole = async (userId) => {
+  const profile = await getActiveProfile(userId);
+  return profile?.profile_type || 'buyer';
+};
+
+const generateTokens = (userId, email, role = "buyer", profileId = null) => {
   const accessToken = jwt.sign(
     {
       id: userId,
       email,
       role,
+      profileId,
       type: "access",
     },
     jwtSecret,
@@ -37,8 +75,9 @@ export const sendEmailOtp = async (req, res) => {
     const { email } = req.body;
     if (!email) return res.status(400).json({ success: false, message: "Email is required" });
 
-    const existingProfile = await pool.query("SELECT id FROM profiles WHERE email = $1", [email]);
-    if (existingProfile.rows.length > 0) {
+    // Check user_accounts instead of profiles
+    const existingUser = await pool.query("SELECT id FROM user_accounts WHERE email = $1", [email]);
+    if (existingUser.rows.length > 0) {
       return res.status(409).json({ success: false, message: "User already exists. Please login." });
     }
 
@@ -116,8 +155,9 @@ export const register = async (req, res) => {
       });
     }
 
+    // Check user_accounts instead of profiles for existing user
     const existingUser = await pool.query(
-      "SELECT id FROM profiles WHERE email = $1",
+      "SELECT id FROM user_accounts WHERE email = $1",
       [email]
     );
 
@@ -135,51 +175,62 @@ export const register = async (req, res) => {
 
     if (updateError) throw updateError;
 
-    const result = await pool.query(
-      `INSERT INTO profiles (id, email, first_name, last_name, role, created_at, updated_at)
+    // 1. Create user_accounts entry
+    await pool.query(
+      `INSERT INTO user_accounts (id, email, first_name, last_name, role, created_at, updated_at)
        VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
-       RETURNING id, email, first_name, last_name, role`,
+       ON CONFLICT (id) DO UPDATE SET 
+         first_name = EXCLUDED.first_name,
+         last_name = EXCLUDED.last_name,
+         role = EXCLUDED.role`,
       [userId, email, first_name || "", last_name || "", role]
     );
 
-    const user = result.rows[0];
+    // 2. Create profile entry in profiles table
+    const { rows: profileRows } = await pool.query(
+      `INSERT INTO profiles (user_id, profile_type, is_active, created_at, updated_at)
+       VALUES ($1, $2, true, NOW(), NOW())
+       RETURNING id, profile_type, is_active`,
+      [userId, role]
+    );
+    const profile = profileRows[0];
 
+    // 3. Create role-specific entry using profile_id as PK
     if (role === 'expert') {
-      const expertDomains = Array.isArray(domains) && domains.length > 0
-        ? domains
-        : [];
+      const expertDomains = Array.isArray(domains) && domains.length > 0 ? domains : [];
 
       await pool.query(
         `INSERT INTO experts (
-          id, domains, experience_summary
-        ) VALUES ($1, $2, $3)`,
+          id, expert_profile_id, domains, experience_summary, is_active
+        ) VALUES ($1, $2, $3, $4, true)`,
         [
           userId,
+          profile.id,
           expertDomains,
-          `Expert in ${expertDomains.join(', ')} ready for deep-tech projects`
+          `Expert in ${expertDomains.join(', ') || 'deep-tech'} ready for projects`
         ]
       );
     } else if (role === 'buyer') {
-      // Ensure buyer row exists for buyer-specific profile fields
       await pool.query(
-        `INSERT INTO buyers (id) VALUES ($1)
-         ON CONFLICT (id) DO NOTHING`,
-        [userId]
+        `INSERT INTO buyers (id, buyer_profile_id, is_active) VALUES ($1, $2, true)
+         ON CONFLICT (buyer_profile_id) DO NOTHING`,
+        [userId, profile.id]
       );
     }
 
-    const { accessToken, refreshToken } = generateTokens(userId, email, role);
+    const { accessToken, refreshToken } = generateTokens(userId, email, role, profile.id);
 
     return res.status(201).json({
       success: true,
       message: "User created successfully",
       data: {
         user: {
-          id: user.id,
-          email: user.email,
-          first_name: user.first_name,
-          last_name: user.last_name,
-          role: user.role,
+          id: userId,
+          email: email,
+          first_name: first_name || "",
+          last_name: last_name || "",
+          role: role,
+          profileId: profile.id,
         },
         tokens: {
           accessToken,
@@ -188,6 +239,7 @@ export const register = async (req, res) => {
       },
     });
   } catch (error) {
+    console.error('[register] Error:', error);
     return res.status(500).json({
       success: false,
       message: "Internal server error",
@@ -222,8 +274,11 @@ export const login = async (req, res) => {
 
     const userId = authData.user.id;
 
+    // Query user_accounts for user data
     const result = await pool.query(
-      "SELECT id, email, first_name, last_name, role, avatar_url, banner_url, profile_completion, is_banned, ban_reason FROM profiles WHERE id = $1",
+      `SELECT id, email, first_name, last_name, role, avatar_url, banner_url, 
+              profile_completion, is_banned, ban_reason 
+       FROM user_accounts WHERE id = $1`,
       [userId]
     );
 
@@ -245,13 +300,19 @@ export const login = async (req, res) => {
       });
     }
 
+    // Get active profile from profiles table
+    const activeProfile = await getActiveProfile(userId);
+    const activeRole = activeProfile?.profile_type || user.role || 'buyer';
+    const profileId = activeProfile?.id || null;
+
     const { accessToken, refreshToken } = generateTokens(
       userId,
       email,
-      user.role
+      activeRole,
+      profileId
     );
 
-    await pool.query("UPDATE profiles SET last_login = NOW() WHERE id = $1", [
+    await pool.query("UPDATE user_accounts SET last_login = NOW() WHERE id = $1", [
       userId,
     ]);
 
@@ -264,7 +325,8 @@ export const login = async (req, res) => {
           email: user.email,
           first_name: user.first_name,
           last_name: user.last_name,
-          role: user.role,
+          role: activeRole,
+          profileId: profileId,
           avatar_url: user.avatar_url,
           banner_url: user.banner_url,
           profile_completion: user.profile_completion,
@@ -304,8 +366,9 @@ export const refreshAccessToken = async (req, res) => {
       });
     }
 
+    // Query user_accounts
     const result = await pool.query(
-      "SELECT id, email, role, is_banned, ban_reason FROM profiles WHERE id = $1",
+      "SELECT id, email, role, is_banned, ban_reason FROM user_accounts WHERE id = $1",
       [decoded.id]
     );
 
@@ -327,11 +390,16 @@ export const refreshAccessToken = async (req, res) => {
       });
     }
 
+    // Get active profile
+    const activeProfile = await getActiveProfile(decoded.id);
+    const activeRole = activeProfile?.profile_type || user.role;
+
     const newAccessToken = jwt.sign(
       {
         id: user.id,
         email: user.email,
-        role: user.role,
+        role: activeRole,
+        profileId: activeProfile?.id || null,
         type: "access",
       },
       jwtSecret,
@@ -369,7 +437,7 @@ export const logout = async (req, res) => {
       if (error) console.error("Supabase logout error:", error);
 
       await pool.query(
-        "UPDATE profiles SET last_logout = NOW() WHERE id = $1",
+        "UPDATE user_accounts SET last_logout = NOW() WHERE id = $1",
         [userId]
       );
     }
@@ -401,7 +469,7 @@ export const getCurrentUser = async (req, res) => {
     const result = await pool.query(
       `SELECT id, email, first_name, last_name, role, avatar_url, banner_url, timezone,
               profile_completion, created_at, last_login
-       FROM profiles WHERE id = $1`,
+       FROM user_accounts WHERE id = $1`,
       [userId]
     );
 
@@ -413,6 +481,7 @@ export const getCurrentUser = async (req, res) => {
     }
 
     const user = result.rows[0];
+    const activeProfile = await getActiveProfile(userId);
 
     return res.status(200).json({
       success: true,
@@ -422,7 +491,8 @@ export const getCurrentUser = async (req, res) => {
           email: user.email,
           first_name: user.first_name,
           last_name: user.last_name,
-          role: user.role,
+          role: activeProfile?.profile_type || user.role,
+          profileId: activeProfile?.id || null,
           avatar_url: user.avatar_url,
           banner_url: user.banner_url,
           timezone: user.timezone,
@@ -456,7 +526,7 @@ export const updateCurrentUser = async (req, res) => {
 
     const result = await pool.query(
       `
-      UPDATE profiles
+      UPDATE user_accounts
       SET
         first_name = COALESCE($1, first_name),
         last_name  = COALESCE($2, last_name),
@@ -532,12 +602,16 @@ export const uploadProfileMedia = async (req, res) => {
       return res.status(500).json({ success: false, message: 'Failed to obtain public URL after upload' });
     }
 
+    // Add cache-busting timestamp to force browsers to fetch the new image
+    const urlWithCacheBuster = `${data.publicUrl}?t=${Date.now()}`;
+
+    // Update user_accounts instead of profiles
     await pool.query(
-      `UPDATE profiles SET ${type}_url = $1, updated_at = NOW() WHERE id = $2`,
-      [data.publicUrl, userId]
+      `UPDATE user_accounts SET ${type}_url = $1, updated_at = NOW() WHERE id = $2`,
+      [urlWithCacheBuster, userId]
     );
 
-    res.json({ success: true, url: data.publicUrl });
+    res.json({ success: true, url: urlWithCacheBuster });
   } catch (err) {
     console.error('uploadProfileMedia error:', err);
     const message = err && err.message ? err.message : String(err);
@@ -546,51 +620,74 @@ export const uploadProfileMedia = async (req, res) => {
 };
 
 /* ================= SWITCH ROLE (BIDIRECTIONAL) ================= */
+
 export const switchRole = async (req, res) => {
   try {
     const userId = req.user.id;
     const email = req.user.email;
-    const currentRole = req.user.role;
 
+    // Get all profiles for this user
+    const allProfiles = await getAllProfiles(userId);
+    const activeProfile = allProfiles.find(p => p.is_active);
+    const currentRole = activeProfile?.profile_type || 'buyer';
     const newRole = currentRole === "buyer" ? "expert" : "buyer";
 
-    if (newRole === "expert") {
-      await pool.query(
-        `
-        INSERT INTO experts (id, domains, experience_summary)
-        VALUES ($1, $2, $3)
-        ON CONFLICT (id) DO NOTHING
-        `,
-        [userId, [], "New expert profile"]
+    // Check if the new role profile exists
+    let newRoleProfile = allProfiles.find(p => p.profile_type === newRole);
+
+    if (!newRoleProfile) {
+      // Create the new profile
+      const { rows } = await pool.query(
+        `INSERT INTO profiles (user_id, profile_type, is_active, created_at, updated_at)
+         VALUES ($1, $2, false, NOW(), NOW())
+         RETURNING id, profile_type, is_active`,
+        [userId, newRole]
       );
+      newRoleProfile = rows[0];
+
+      // Create the role-specific record
+      if (newRole === 'expert') {
+        await pool.query(
+          `INSERT INTO experts (id, expert_profile_id, domains, experience_summary, is_active)
+           VALUES ($1, $2, $3, $4, false)
+           ON CONFLICT (expert_profile_id) DO NOTHING`,
+          [userId, newRoleProfile.id, [], "New expert profile"]
+        );
+      } else if (newRole === 'buyer') {
+        await pool.query(
+          `INSERT INTO buyers (id, buyer_profile_id, is_active)
+           VALUES ($1, $2, false)
+           ON CONFLICT (buyer_profile_id) DO NOTHING`,
+          [userId, newRoleProfile.id]
+        );
+      }
     }
 
-    if (newRole === "buyer") {
+    // Deactivate current profile, activate new profile
+    if (activeProfile) {
       await pool.query(
-        `
-        INSERT INTO buyers (id)
-        VALUES ($1)
-        ON CONFLICT (id) DO NOTHING
-        `,
-        [userId]
+        `UPDATE profiles SET is_active = false, updated_at = NOW() WHERE id = $1`,
+        [activeProfile.id]
       );
     }
 
     await pool.query(
-      `UPDATE profiles SET role = $1 WHERE id = $2`,
-      [newRole, userId]
+      `UPDATE profiles SET is_active = true, updated_at = NOW() WHERE id = $1`,
+      [newRoleProfile.id]
     );
 
-    const tokens = generateTokens(userId, email, newRole);
+    const tokens = generateTokens(userId, email, newRole, newRoleProfile.id);
 
     return res.json({
       success: true,
       data: {
         role: newRole,
+        profileId: newRoleProfile.id,
         tokens,
       },
     });
   } catch (err) {
+    console.error('[switchRole] Error:', err);
     return res.status(500).json({
       success: false,
       message: err.message,

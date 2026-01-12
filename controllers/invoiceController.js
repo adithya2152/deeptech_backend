@@ -6,7 +6,7 @@ import pool from "../config/db.js";
 export const payInvoice = async (req, res) => {
   try {
     const { invoiceId } = req.params;
-    const userId = req.user.id;
+    const profileId = req.user.profileId;
     const userRole = req.user.role;
 
     // Get invoice
@@ -35,8 +35,8 @@ export const payInvoice = async (req, res) => {
       });
     }
 
-    // Check authorization: buyer or admin
-    if (contract.buyer_id !== userId && userRole !== "admin") {
+    // Check authorization: buyer (by profile_id) or admin
+    if (contract.buyer_profile_id !== profileId && userRole !== "admin") {
       return res.status(403).json({
         success: false,
         message: "Only the buyer can pay invoices",
@@ -110,7 +110,7 @@ export const payInvoice = async (req, res) => {
 export const getInvoiceById = async (req, res) => {
   try {
     const { invoiceId } = req.params;
-    const userId = req.user.id;
+    const profileId = req.user.profileId;
     const userRole = req.user.role;
 
     const invoice = await Invoice.getById(invoiceId);
@@ -130,10 +130,10 @@ export const getInvoiceById = async (req, res) => {
       });
     }
 
-    // Check access
+    // Check access using profile IDs
     if (
-      contract.buyer_id !== userId &&
-      contract.expert_id !== userId &&
+      contract.buyer_profile_id !== profileId &&
+      contract.expert_profile_id !== profileId &&
       userRole !== "admin"
     ) {
       return res.status(403).json({

@@ -2,12 +2,12 @@ import projectModel from '../models/projectModel.js';
 
 export const getMyProjects = async (req, res) => {
   try {
-    const userId = req.user.id;
+    const profileId = req.user.profileId;
     const role = req.user.role;
-    const status = req.query.status; 
-    
-    const projects = await projectModel.getProjectsByClient(userId, role, status);
-    res.status(200).json({ data: projects }); 
+    const status = req.query.status;
+
+    const projects = await projectModel.getProjectsByClient(profileId, role, status);
+    res.status(200).json({ data: projects });
   } catch (error) {
     console.error("GET PROJECTS ERROR:", error);
     res.status(500).json({ error: 'Server error' });
@@ -28,12 +28,14 @@ export const getProjectById = async (req, res) => {
 
 export const createProject = async (req, res) => {
   try {
+    const buyerProfileId = req.user.profileId;
+
     const projectData = {
       title: req.body.title,
       description: req.body.description,
-      buyer_id: req.user.id, 
+      buyer_profile_id: buyerProfileId,
       domain: req.body.domain,
-      trl_level: req.body.trl_level, 
+      trl_level: req.body.trl_level,
       risk_categories: req.body.risk_categories,
       expected_outcome: req.body.expected_outcome,
       budget_min: req.body.budget_min,
@@ -51,24 +53,25 @@ export const createProject = async (req, res) => {
 export const updateProject = async (req, res) => {
   try {
     const { id } = req.params;
-    const userId = req.user.id;
+    const profileId = req.user.profileId;
     const updates = req.body;
 
     const existingProject = await projectModel.getById(id);
     if (!existingProject) return res.status(404).json({ error: 'Project not found' });
-    
-    const ownerId = existingProject.buyer?.id || existingProject.buyer_id;
-    if (ownerId !== userId) return res.status(403).json({ error: 'Unauthorized' });
+
+    // Check ownership using buyer_profile_id
+    const ownerProfileId = existingProject.buyer?.id || existingProject.buyer_profile_id;
+    if (ownerProfileId !== profileId) return res.status(403).json({ error: 'Unauthorized' });
 
     if (existingProject.status !== 'draft') {
-       const keys = Object.keys(updates);
-       const isOnlyStatusUpdate = keys.length === 1 && keys[0] === 'status';
-       
-       if (!isOnlyStatusUpdate) {
-         return res.status(400).json({ 
-           error: 'Live projects cannot be edited. Change status to Draft first to edit details.' 
-         });
-       }
+      const keys = Object.keys(updates);
+      const isOnlyStatusUpdate = keys.length === 1 && keys[0] === 'status';
+
+      if (!isOnlyStatusUpdate) {
+        return res.status(400).json({
+          error: 'Live projects cannot be edited. Change status to Draft first to edit details.'
+        });
+      }
     }
 
     const updatedProject = await projectModel.update(id, updates);
@@ -82,13 +85,14 @@ export const updateProject = async (req, res) => {
 export const deleteProject = async (req, res) => {
   try {
     const { id } = req.params;
-    const userId = req.user.id;
+    const profileId = req.user.profileId;
 
     const existingProject = await projectModel.getById(id);
     if (!existingProject) return res.status(404).json({ error: 'Project not found' });
-    
-    const ownerId = existingProject.buyer?.id || existingProject.buyer_id;
-    if (ownerId !== userId) return res.status(403).json({ error: 'Unauthorized' });
+
+    // Check ownership using buyer_profile_id
+    const ownerProfileId = existingProject.buyer?.id || existingProject.buyer_profile_id;
+    if (ownerProfileId !== profileId) return res.status(403).json({ error: 'Unauthorized' });
 
     await projectModel.delete(id);
     res.status(200).json({ message: 'Project deleted successfully' });
@@ -100,8 +104,8 @@ export const deleteProject = async (req, res) => {
 
 export const getMarketplaceProjects = async (req, res) => {
   try {
-    const buyerId = req.query.buyer_id || req.query.buyerId;
-    const projects = await projectModel.getMarketplaceProjects(buyerId);
+    const buyerProfileId = req.query.buyer_profile_id || req.query.buyerProfileId;
+    const projects = await projectModel.getMarketplaceProjects(buyerProfileId);
     res.status(200).json({ data: projects });
   } catch (error) {
     console.error("MARKETPLACE ERROR:", error);
@@ -112,13 +116,14 @@ export const getMarketplaceProjects = async (req, res) => {
 export const getProjectProposals = async (req, res) => {
   try {
     const { id: projectId } = req.params;
-    const userId = req.user.id;
+    const profileId = req.user.profileId;
 
     const project = await projectModel.getById(projectId);
     if (!project) return res.status(404).json({ error: 'Project not found' });
-    
-    const ownerId = project.buyer?.id || project.buyer_id;
-    if (ownerId !== userId) return res.status(403).json({ error: 'Unauthorized' });
+
+    // Check ownership using buyer_profile_id
+    const ownerProfileId = project.buyer?.id || project.buyer_profile_id;
+    if (ownerProfileId !== profileId) return res.status(403).json({ error: 'Unauthorized' });
 
     const proposals = await projectModel.getProjectProposals(projectId);
     res.status(200).json({ data: proposals });
@@ -131,7 +136,7 @@ export const getProjectProposals = async (req, res) => {
 export const submitProposal = async (req, res) => {
   try {
     const { id: projectId } = req.params;
-    const expertId = req.user.id;
+    const expertProfileId = req.user.profileId;
     const { amount, duration, cover_letter } = req.body;
 
     if (!amount || !duration || !cover_letter) {
@@ -139,60 +144,34 @@ export const submitProposal = async (req, res) => {
     }
 
     if (req.user.role !== 'expert') {
-        return res.status(403).json({ error: 'Only experts can submit proposals' });
+      return res.status(403).json({ error: 'Only experts can submit proposals' });
     }
 
     const project = await projectModel.getById(projectId);
     if (!project) return res.status(404).json({ error: 'Project not found' });
 
-    const projectBuyerId = project.buyer?.id || project.buyer_id;
-    if (projectBuyerId === expertId) {
+    // Check if expert is trying to submit to their own project
+    const projectBuyerProfileId = project.buyer?.id || project.buyer_profile_id;
+    if (projectBuyerProfileId === expertProfileId) {
       return res.status(400).json({
         error: 'You cannot submit a proposal on your own project'
       });
     }
 
-    const proposal = await projectModel.createProposal(projectId, expertId, {
+    const proposal = await projectModel.createProposal(projectId, expertProfileId, {
       amount,
       duration,
       cover_letter
     });
 
-    res.status(201).json({ 
-      message: 'Proposal submitted successfully', 
-      data: proposal 
+    res.status(201).json({
+      message: 'Proposal submitted successfully',
+      data: proposal
     });
 
   } catch (error) {
     console.error('SUBMIT PROPOSAL ERROR:', error);
     res.status(500).json({ error: 'Server error' });
-  }
-};
-
-export const finishSprint = async (req, res) => {
-  try {
-    const { contractId } = req.params;
-
-    const contract = await Contract.getById(contractId);
-    if (!contract) {
-      return res.status(404).json({ success: false, message: 'Contract not found' });
-    }
-
-    if (contract.engagement_model !== 'sprint') {
-      return res.status(400).json({ success: false, message: 'Not a sprint contract' });
-    }
-
-    const currentSprint = contract.payment_terms.current_sprint_number || 1;
-
-    const updated = await Contract.updatePaymentTerms(contractId, {
-      ...contract.payment_terms,
-      current_sprint_number: currentSprint + 1,
-      sprint_start_date: new Date().toISOString(),
-    });
-
-    res.json({ success: true, data: updated });
-  } catch (err) {
-    res.status(500).json({ success: false, message: err.message });
   }
 };
 

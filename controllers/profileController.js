@@ -34,6 +34,12 @@ export const getMyProfile = async (req, res) => {
 export const getUserReviews = async (req, res) => {
   try {
     const userId = req.params.id;
+
+    // Validate userId
+    if (!userId || userId === 'undefined' || userId === 'null') {
+      return res.status(400).json({ success: false, message: 'Valid user ID is required' });
+    }
+
     const role = req.query.role || null; // Optional: 'buyer' or 'expert'
     const rows = await ProfileModel.getUserReviews(userId, role);
     return res.json({ success: true, data: rows });
@@ -51,10 +57,19 @@ export const updateMyProfile = async (req, res) => {
       return res.status(404).json({ success: false, message: "Profile not found" });
     }
 
+    console.log('[updateMyProfile] Request body:', req.body);
+
     await ProfileModel.updateBaseProfile(userId, req.body);
 
-    if (base.role === 'buyer') {
-      await ProfileModel.ensureBuyerRow(userId);
+    // Get active profile to determine role
+    const activeProfile = await ProfileModel.getActiveProfile(userId);
+    const role = activeProfile?.profile_type || base.role;
+
+    if (role === 'buyer') {
+      // Ensure buyer row exists with the correct profile_id
+      if (activeProfile?.id) {
+        await ProfileModel.ensureBuyerRow(userId, activeProfile.id);
+      }
       await ProfileModel.updateBuyerProfile(userId, req.body);
     }
 

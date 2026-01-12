@@ -8,7 +8,7 @@ CREATE TABLE public.answer_votes (
   vote_type text CHECK (vote_type = ANY (ARRAY['up'::text, 'down'::text])),
   created_at timestamp with time zone DEFAULT now(),
   CONSTRAINT answer_votes_pkey PRIMARY KEY (id),
-  CONSTRAINT answer_votes_voter_fk FOREIGN KEY (voter_id) REFERENCES public.profiles(id)
+  CONSTRAINT answer_votes_voter_fk FOREIGN KEY (voter_id) REFERENCES public.user_accounts(id)
 );
 CREATE TABLE public.blogs (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
@@ -17,10 +17,10 @@ CREATE TABLE public.blogs (
   content text,
   created_at timestamp with time zone DEFAULT now(),
   CONSTRAINT blogs_pkey PRIMARY KEY (id),
-  CONSTRAINT blogs_author_fk FOREIGN KEY (author_id) REFERENCES public.profiles(id)
+  CONSTRAINT blogs_author_fk FOREIGN KEY (author_id) REFERENCES public.user_accounts(id)
 );
 CREATE TABLE public.buyers (
-  id uuid NOT NULL,
+  id uuid,
   company_name text,
   company_size text,
   industry text,
@@ -40,15 +40,18 @@ CREATE TABLE public.buyers (
   social_proof text,
   company_website text,
   vat_id text,
-  CONSTRAINT buyers_pkey PRIMARY KEY (id),
-  CONSTRAINT buyers_id_fkey FOREIGN KEY (id) REFERENCES public.profiles(id)
+  is_active boolean DEFAULT true,
+  buyer_profile_id uuid NOT NULL,
+  CONSTRAINT buyers_pkey PRIMARY KEY (buyer_profile_id),
+  CONSTRAINT buyers_id_fkey FOREIGN KEY (id) REFERENCES public.user_accounts(id),
+  CONSTRAINT buyers_profile_fk FOREIGN KEY (buyer_profile_id) REFERENCES public.profiles(id)
 );
 CREATE TABLE public.chat_members (
   chat_id uuid NOT NULL,
   user_id uuid NOT NULL,
   joined_at timestamp with time zone DEFAULT now(),
   CONSTRAINT chat_members_pkey PRIMARY KEY (chat_id, user_id),
-  CONSTRAINT chat_members_user_fk FOREIGN KEY (user_id) REFERENCES public.profiles(id),
+  CONSTRAINT chat_members_user_fk FOREIGN KEY (user_id) REFERENCES public.user_accounts(id),
   CONSTRAINT chat_members_chat_id_fkey FOREIGN KEY (chat_id) REFERENCES public.chats(id)
 );
 CREATE TABLE public.chats (
@@ -60,8 +63,6 @@ CREATE TABLE public.chats (
 CREATE TABLE public.contracts (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
   project_id uuid NOT NULL,
-  buyer_id uuid NOT NULL,
-  expert_id uuid NOT NULL,
   engagement_model USER-DEFINED NOT NULL,
   payment_terms jsonb NOT NULL,
   status USER-DEFINED NOT NULL DEFAULT 'pending'::contract_status_enum,
@@ -77,10 +78,12 @@ CREATE TABLE public.contracts (
   nda_custom_content text,
   nda_status text DEFAULT 'draft'::text CHECK (nda_status = ANY (ARRAY['draft'::text, 'sent'::text, 'signed'::text])),
   updated_at timestamp without time zone DEFAULT now(),
+  expert_profile_id uuid NOT NULL,
+  buyer_profile_id uuid NOT NULL,
   CONSTRAINT contracts_pkey PRIMARY KEY (id),
-  CONSTRAINT contracts_buyer_fk FOREIGN KEY (buyer_id) REFERENCES public.buyers(id),
-  CONSTRAINT contracts_project_fk FOREIGN KEY (project_id) REFERENCES public.projects(id),
-  CONSTRAINT contracts_expert_fk FOREIGN KEY (expert_id) REFERENCES public.experts(id)
+  CONSTRAINT contracts_buyer_profile_fk FOREIGN KEY (buyer_profile_id) REFERENCES public.profiles(id),
+  CONSTRAINT contracts_expert_profile_fk FOREIGN KEY (expert_profile_id) REFERENCES public.profiles(id),
+  CONSTRAINT contracts_project_fk FOREIGN KEY (project_id) REFERENCES public.projects(id)
 );
 CREATE TABLE public.conversations (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
@@ -90,21 +93,21 @@ CREATE TABLE public.conversations (
   updated_at timestamp with time zone DEFAULT now(),
   last_message_at timestamp with time zone DEFAULT now(),
   CONSTRAINT conversations_pkey PRIMARY KEY (id),
-  CONSTRAINT conv_p2_fk FOREIGN KEY (participant_2) REFERENCES public.profiles(id),
-  CONSTRAINT conv_p1_fk FOREIGN KEY (participant_1) REFERENCES public.profiles(id)
+  CONSTRAINT conv_p2_fk FOREIGN KEY (participant_2) REFERENCES public.user_accounts(id),
+  CONSTRAINT conv_p1_fk FOREIGN KEY (participant_1) REFERENCES public.user_accounts(id)
 );
 CREATE TABLE public.day_work_summaries (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
   contract_id uuid NOT NULL,
-  expert_id uuid NOT NULL,
   work_date date NOT NULL,
   total_hours numeric NOT NULL,
   status text DEFAULT 'pending'::text CHECK (status = ANY (ARRAY['pending'::text, 'approved'::text, 'rejected'::text])),
   reviewer_comment text,
   approved_at timestamp with time zone,
   created_at timestamp with time zone DEFAULT now(),
+  expert_profile_id uuid,
   CONSTRAINT day_work_summaries_pkey PRIMARY KEY (id),
-  CONSTRAINT dws_expert_fk FOREIGN KEY (expert_id) REFERENCES public.experts(id),
+  CONSTRAINT dws_profile_fk FOREIGN KEY (expert_profile_id) REFERENCES public.profiles(id),
   CONSTRAINT dws_contract_fk FOREIGN KEY (contract_id) REFERENCES public.contracts(id)
 );
 CREATE TABLE public.disputes (
@@ -123,7 +126,7 @@ CREATE TABLE public.disputes (
   resolved_at timestamp with time zone,
   CONSTRAINT disputes_pkey PRIMARY KEY (id),
   CONSTRAINT disputes_contract_id_fkey FOREIGN KEY (contract_id) REFERENCES public.contracts(id),
-  CONSTRAINT disputes_resolved_by_fk FOREIGN KEY (resolved_by) REFERENCES public.profiles(id)
+  CONSTRAINT disputes_resolved_by_fk FOREIGN KEY (resolved_by) REFERENCES public.user_accounts(id)
 );
 CREATE TABLE public.doubt_answers (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
@@ -131,11 +134,10 @@ CREATE TABLE public.doubt_answers (
   content text NOT NULL,
   created_at timestamp with time zone DEFAULT now(),
   CONSTRAINT doubt_answers_pkey PRIMARY KEY (id),
-  CONSTRAINT doubt_answers_user_fk FOREIGN KEY (user_id) REFERENCES public.profiles(id)
+  CONSTRAINT doubt_answers_user_fk FOREIGN KEY (user_id) REFERENCES public.user_accounts(id)
 );
 CREATE TABLE public.expert_capability_scores (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
-  expert_id uuid NOT NULL UNIQUE,
   total_score integer CHECK (total_score >= 0 AND total_score <= 100),
   base_score integer CHECK (base_score >= 0 AND base_score <= 60),
   verification_score integer CHECK (verification_score >= 0 AND verification_score <= 20),
@@ -157,8 +159,9 @@ CREATE TABLE public.expert_capability_scores (
   reviewed_at timestamp without time zone,
   scored_at timestamp without time zone DEFAULT now(),
   scoring_version character varying DEFAULT 'v1.0'::character varying,
+  expert_profile_id uuid NOT NULL,
   CONSTRAINT expert_capability_scores_pkey PRIMARY KEY (id),
-  CONSTRAINT expert_capability_scores_expert_id_fkey FOREIGN KEY (expert_id) REFERENCES public.experts(id)
+  CONSTRAINT expert_capability_scores_profile_fk FOREIGN KEY (expert_profile_id) REFERENCES public.profiles(id)
 );
 CREATE TABLE public.expert_documents (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
@@ -169,8 +172,9 @@ CREATE TABLE public.expert_documents (
   is_public boolean DEFAULT true,
   created_at timestamp with time zone DEFAULT now(),
   sub_type text,
+  expert_profile_id uuid,
   CONSTRAINT expert_documents_pkey PRIMARY KEY (id),
-  CONSTRAINT expert_documents_expert_id_fkey FOREIGN KEY (expert_id) REFERENCES public.experts(id)
+  CONSTRAINT expert_documents_profile_fk FOREIGN KEY (expert_profile_id) REFERENCES public.profiles(id)
 );
 CREATE TABLE public.experts (
   id uuid NOT NULL,
@@ -205,27 +209,27 @@ CREATE TABLE public.experts (
   vetting_verified_by uuid,
   linkedin_url text,
   github_url text,
-  CONSTRAINT experts_pkey PRIMARY KEY (id),
-  CONSTRAINT experts_id_fkey FOREIGN KEY (id) REFERENCES public.profiles(id)
+  is_active boolean DEFAULT true,
+  expert_profile_id uuid NOT NULL,
+  CONSTRAINT experts_pkey PRIMARY KEY (expert_profile_id),
+  CONSTRAINT experts_id_fkey FOREIGN KEY (id) REFERENCES public.user_accounts(id)
 );
 CREATE TABLE public.feedback (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
   contract_id uuid NOT NULL,
   giver_id uuid NOT NULL,
   receiver_id uuid NOT NULL,
-  receiver_role text NOT NULL CHECK (receiver_role = ANY (ARRAY['buyer'::text, 'expert'::text])),
   rating numeric CHECK (rating >= 1::numeric AND rating <= 5::numeric),
   is_positive boolean DEFAULT true,
   comment text,
   created_at timestamp with time zone DEFAULT now(),
   helpful_count integer DEFAULT 0,
+  receiver_role text NOT NULL DEFAULT 'expert'::text CHECK (receiver_role = ANY (ARRAY['buyer'::text, 'expert'::text])),
   CONSTRAINT feedback_pkey PRIMARY KEY (id)
 );
 CREATE TABLE public.invoices (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
   contract_id uuid NOT NULL,
-  expert_id uuid NOT NULL,
-  buyer_id uuid NOT NULL,
   amount numeric NOT NULL,
   total_hours numeric NOT NULL,
   status text NOT NULL DEFAULT 'pending'::text CHECK (status = ANY (ARRAY['pending'::text, 'paid'::text, 'overdue'::text, 'cancelled'::text])),
@@ -236,9 +240,10 @@ CREATE TABLE public.invoices (
   invoice_type text DEFAULT 'periodic'::text CHECK (invoice_type = ANY (ARRAY['periodic'::text, 'sprint'::text, 'final_fixed'::text])),
   source_type text,
   source_id uuid,
+  expert_profile_id uuid NOT NULL,
+  buyer_profile_id uuid NOT NULL,
   CONSTRAINT invoices_pkey PRIMARY KEY (id),
-  CONSTRAINT invoices_expert_id_fk FOREIGN KEY (expert_id) REFERENCES public.experts(id),
-  CONSTRAINT invoices_buyer_fk FOREIGN KEY (buyer_id) REFERENCES public.buyers(id),
+  CONSTRAINT invoices_buyer_profile_fk FOREIGN KEY (buyer_profile_id) REFERENCES public.profiles(id),
   CONSTRAINT invoices_contract_fk FOREIGN KEY (contract_id) REFERENCES public.contracts(id)
 );
 CREATE TABLE public.message_attachments (
@@ -260,7 +265,7 @@ CREATE TABLE public.messages (
   content text NOT NULL,
   created_at timestamp with time zone DEFAULT now(),
   CONSTRAINT messages_pkey PRIMARY KEY (id),
-  CONSTRAINT messages_sender_fk FOREIGN KEY (sender_id) REFERENCES public.profiles(id),
+  CONSTRAINT messages_sender_fk FOREIGN KEY (sender_id) REFERENCES public.user_accounts(id),
   CONSTRAINT messages_chat_id_fkey FOREIGN KEY (chat_id) REFERENCES public.chats(id)
 );
 CREATE TABLE public.phone_otps (
@@ -273,49 +278,30 @@ CREATE TABLE public.phone_otps (
   CONSTRAINT phone_otps_pkey PRIMARY KEY (id)
 );
 CREATE TABLE public.profiles (
-  id uuid NOT NULL,
-  email character varying NOT NULL UNIQUE,
-  first_name character varying,
-  last_name character varying,
-  role character varying DEFAULT 'user'::character varying CHECK (role::text = ANY (ARRAY['buyer'::text, 'expert'::text, 'admin'::text])),
-  email_verified boolean DEFAULT false,
-  created_at timestamp without time zone DEFAULT now(),
-  updated_at timestamp without time zone DEFAULT now(),
-  last_login timestamp without time zone,
-  last_logout timestamp without time zone,
-  avatar_url text,
-  is_banned boolean DEFAULT false,
-  ban_reason text,
-  phone character varying,
-  phone_verified boolean DEFAULT false,
-  banner_url text,
-  username text UNIQUE,
-  country text,
-  timezone text,
-  profile_completion integer DEFAULT 0 CHECK (profile_completion >= 0 AND profile_completion <= 100),
-  terms_accepted boolean DEFAULT false,
-  terms_accepted_at timestamp with time zone,
-  deleted_at timestamp with time zone,
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  user_id uuid NOT NULL,
+  profile_type text NOT NULL CHECK (profile_type = ANY (ARRAY['expert'::text, 'buyer'::text, 'admin'::text])),
+  is_active boolean DEFAULT true,
+  created_at timestamp with time zone DEFAULT now(),
+  updated_at timestamp with time zone DEFAULT now(),
   CONSTRAINT profiles_pkey PRIMARY KEY (id),
-  CONSTRAINT profiles_id_fkey FOREIGN KEY (id) REFERENCES auth.users(id)
+  CONSTRAINT profiles_user_fk FOREIGN KEY (user_id) REFERENCES public.user_accounts(id)
 );
 CREATE TABLE public.project_invitations (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
   project_id uuid NOT NULL,
-  expert_id uuid NOT NULL,
   status text DEFAULT 'pending'::text CHECK (status = ANY (ARRAY['pending'::text, 'accepted'::text, 'declined'::text])),
   message text,
   created_at timestamp with time zone DEFAULT now(),
+  expert_profile_id uuid,
   CONSTRAINT project_invitations_pkey PRIMARY KEY (id),
   CONSTRAINT project_invitations_project_id_fkey FOREIGN KEY (project_id) REFERENCES public.projects(id),
-  CONSTRAINT project_invitations_expert_id_fkey FOREIGN KEY (expert_id) REFERENCES public.experts(id)
+  CONSTRAINT project_invitations_expert_profile_fk FOREIGN KEY (expert_profile_id) REFERENCES public.profiles(id)
 );
 CREATE TABLE public.projects (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
   title text NOT NULL,
   description text,
-  buyer_id uuid NOT NULL,
-  expert_id uuid,
   status text NOT NULL DEFAULT 'draft'::text,
   budget_min numeric,
   budget_max numeric,
@@ -327,14 +313,13 @@ CREATE TABLE public.projects (
   trl_level text,
   risk_categories ARRAY,
   expected_outcome text,
+  buyer_profile_id uuid NOT NULL,
   CONSTRAINT projects_pkey PRIMARY KEY (id),
-  CONSTRAINT projects_buyer_fk FOREIGN KEY (buyer_id) REFERENCES public.buyers(id),
-  CONSTRAINT projects_expert_id_fkey FOREIGN KEY (expert_id) REFERENCES public.experts(id)
+  CONSTRAINT projects_buyer_profile_fk FOREIGN KEY (buyer_profile_id) REFERENCES public.profiles(id)
 );
 CREATE TABLE public.proposals (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
   project_id uuid NOT NULL,
-  expert_id uuid NOT NULL,
   quote_amount numeric NOT NULL,
   message text,
   status text NOT NULL DEFAULT 'pending'::text,
@@ -344,9 +329,10 @@ CREATE TABLE public.proposals (
   engagement_model USER-DEFINED NOT NULL,
   rate numeric NOT NULL,
   sprint_count integer,
+  expert_profile_id uuid,
   CONSTRAINT proposals_pkey PRIMARY KEY (id),
-  CONSTRAINT proposals_project_id_projects_id_fk FOREIGN KEY (project_id) REFERENCES public.projects(id),
-  CONSTRAINT proposals_expert_fk FOREIGN KEY (expert_id) REFERENCES public.experts(id)
+  CONSTRAINT proposals_profile_fk FOREIGN KEY (expert_profile_id) REFERENCES public.profiles(id),
+  CONSTRAINT proposals_project_id_projects_id_fk FOREIGN KEY (project_id) REFERENCES public.projects(id)
 );
 CREATE TABLE public.reports (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
@@ -373,8 +359,8 @@ CREATE TABLE public.score_adjustments_log (
   created_at timestamp with time zone DEFAULT now(),
   notes jsonb,
   CONSTRAINT score_adjustments_log_pkey PRIMARY KEY (id),
-  CONSTRAINT score_adjustments_log_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.profiles(id),
-  CONSTRAINT score_adjustments_log_admin_id_fkey FOREIGN KEY (admin_id) REFERENCES public.profiles(id)
+  CONSTRAINT score_adjustments_log_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.user_accounts(id),
+  CONSTRAINT score_adjustments_log_admin_id_fkey FOREIGN KEY (admin_id) REFERENCES public.user_accounts(id)
 );
 CREATE TABLE public.score_history (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
@@ -385,7 +371,34 @@ CREATE TABLE public.score_history (
   trigger_reason text,
   created_at timestamp with time zone DEFAULT now(),
   CONSTRAINT score_history_pkey PRIMARY KEY (id),
-  CONSTRAINT score_history_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.profiles(id)
+  CONSTRAINT score_history_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.user_accounts(id)
+);
+CREATE TABLE public.user_accounts (
+  id uuid NOT NULL,
+  email character varying NOT NULL UNIQUE,
+  first_name character varying,
+  last_name character varying,
+  role character varying DEFAULT 'user'::character varying CHECK (role::text = ANY (ARRAY['buyer'::text, 'expert'::text, 'admin'::text])),
+  email_verified boolean DEFAULT false,
+  created_at timestamp without time zone DEFAULT now(),
+  updated_at timestamp without time zone DEFAULT now(),
+  last_login timestamp without time zone,
+  last_logout timestamp without time zone,
+  avatar_url text,
+  is_banned boolean DEFAULT false,
+  ban_reason text,
+  phone character varying,
+  phone_verified boolean DEFAULT false,
+  banner_url text,
+  username text UNIQUE,
+  country text,
+  timezone text,
+  profile_completion integer DEFAULT 0 CHECK (profile_completion >= 0 AND profile_completion <= 100),
+  terms_accepted boolean DEFAULT false,
+  terms_accepted_at timestamp with time zone,
+  deleted_at timestamp with time zone,
+  CONSTRAINT user_accounts_pkey PRIMARY KEY (id),
+  CONSTRAINT profiles_id_fkey FOREIGN KEY (id) REFERENCES auth.users(id)
 );
 CREATE TABLE public.user_rank_tiers (
   user_id uuid NOT NULL,
@@ -396,8 +409,9 @@ CREATE TABLE public.user_rank_tiers (
   badge_icon text,
   tier_description text,
   updated_at timestamp with time zone DEFAULT now(),
+  profile_id uuid,
   CONSTRAINT user_rank_tiers_pkey PRIMARY KEY (user_id),
-  CONSTRAINT user_rank_tiers_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.profiles(id)
+  CONSTRAINT user_rank_tiers_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.user_accounts(id)
 );
 CREATE TABLE public.user_scores (
   user_id uuid NOT NULL,
@@ -410,8 +424,9 @@ CREATE TABLE public.user_scores (
   last_calculated_at timestamp with time zone DEFAULT now(),
   is_manual_override boolean DEFAULT false,
   updated_by uuid,
+  profile_id uuid,
   CONSTRAINT user_scores_pkey PRIMARY KEY (user_id),
-  CONSTRAINT user_scores_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.profiles(id)
+  CONSTRAINT user_scores_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.user_accounts(id)
 );
 CREATE TABLE public.user_tags (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
@@ -425,8 +440,9 @@ CREATE TABLE public.user_tags (
   score_contribution numeric DEFAULT 0,
   display_priority integer DEFAULT 100,
   is_verified_badge boolean DEFAULT false,
+  profile_id uuid,
   CONSTRAINT user_tags_pkey PRIMARY KEY (id),
-  CONSTRAINT user_tags_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.profiles(id)
+  CONSTRAINT user_tags_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.user_accounts(id)
 );
 CREATE TABLE public.work_logs (
   id uuid NOT NULL DEFAULT gen_random_uuid(),

@@ -2,15 +2,19 @@ import pool from "../config/db.js";
 
 /**
  * Find or create a direct chat between two users
+ * @param {string} userId1 - The initiating user's ID
+ * @param {string} userId2 - The participant's ID
+ * @param {string} role1 - The role of the initiating user (buyer/expert)
+ * @param {string} role2 - The role of the participant (buyer/expert)
  */
-export const findOrCreateDirectChat = async (userId1, userId2) => {
+export const findOrCreateDirectChat = async (userId1, userId2, role1 = 'expert', role2 = 'expert') => {
   try {
-    // First try to find existing direct chat
+    // First try to find existing direct chat between these users with matching roles
     const findSql = `
       SELECT c.id, c.type, c.created_at
       FROM chats c
-      JOIN chat_members cm1 ON c.id = cm1.chat_id AND cm1.user_id = $1
-      JOIN chat_members cm2 ON c.id = cm2.chat_id AND cm2.user_id = $2
+      JOIN chat_members cm1 ON c.id = cm1.chat_id AND cm1.user_id = $1 AND cm1.member_role = $3
+      JOIN chat_members cm2 ON c.id = cm2.chat_id AND cm2.user_id = $2 AND cm2.member_role = $4
       WHERE c.type = 'direct'
       LIMIT 1;
     `;
@@ -18,6 +22,8 @@ export const findOrCreateDirectChat = async (userId1, userId2) => {
     const { rows: existingChat } = await pool.query(findSql, [
       userId1,
       userId2,
+      role1,
+      role2,
     ]);
 
     if (existingChat.length > 0) {
@@ -34,14 +40,14 @@ export const findOrCreateDirectChat = async (userId1, userId2) => {
     const { rows: newChat } = await pool.query(createSql);
     const chatId = newChat[0].id;
 
-    // Add both users to chat_members
+    // Add both users to chat_members with their roles
     const addMembersSql = `
-      INSERT INTO chat_members (chat_id, user_id, joined_at)
-      VALUES ($1, $2, NOW()), ($1, $3, NOW())
+      INSERT INTO chat_members (chat_id, user_id, member_role, joined_at)
+      VALUES ($1, $2, $3, NOW()), ($1, $4, $5, NOW())
       ON CONFLICT DO NOTHING;
     `;
 
-    await pool.query(addMembersSql, [chatId, userId1, userId2]);
+    await pool.query(addMembersSql, [chatId, userId1, role1, userId2, role2]);
 
     return newChat[0];
   } catch (error) {
@@ -51,10 +57,13 @@ export const findOrCreateDirectChat = async (userId1, userId2) => {
 };
 
 /**
- * Get all chats for a user
+ * Get all chats for a user filtered by their current role
+ * @param {string} userId - The user's ID
+ * @param {string} role - The user's current role (buyer/expert)
  */
-export const getUserChats = async (userId) => {
+export const getUserChats = async (userId, role = null) => {
   try {
+    // Build query with optional role filter
     const sql = `
       SELECT 
         c.id,
@@ -67,23 +76,26 @@ export const getUserChats = async (userId) => {
          ORDER BY created_at DESC LIMIT 1) as "lastMessageAt",
         json_agg(
           json_build_object(
-            'id', p.id,
-            'name', p.first_name || ' ' || p.last_name,
-            'role', p.role,
-            'avatar_url', p.avatar_url
+            'id', u.id,
+            'name', u.first_name || ' ' || u.last_name,
+            'role', u.role,
+            'avatar_url', u.avatar_url
           ) ORDER BY cm.joined_at
         ) as "members"
       FROM chats c
       JOIN chat_members cm ON c.id = cm.chat_id
-      JOIN profiles p ON cm.user_id = p.id
+      JOIN user_accounts u ON cm.user_id = u.id
       WHERE c.id IN (
-        SELECT chat_id FROM chat_members WHERE user_id = $1
+        SELECT chat_id FROM chat_members 
+        WHERE user_id = $1
+        ${role ? 'AND member_role = $2' : ''}
       )
       GROUP BY c.id
       ORDER BY c.created_at DESC;
     `;
 
-    const { rows } = await pool.query(sql, [userId]);
+    const params = role ? [userId, role] : [userId];
+    const { rows } = await pool.query(sql, params);
 
     return rows.map((row) => ({
       id: row.id,
@@ -200,16 +212,16 @@ export const getChatDetails = async (chatId, userId) => {
         c.created_at as "createdAt",
         json_agg(
           json_build_object(
-            'id', p.id,
-            'name', p.first_name || ' ' || p.last_name,
-            'role', p.role,
-            'avatar_url', p.avatar_url,
+            'id', u.id,
+            'name', u.first_name || ' ' || u.last_name,
+            'role', u.role,
+            'avatar_url', u.avatar_url,
             'joinedAt', cm.joined_at
           ) ORDER BY cm.joined_at
         ) as "members"
       FROM chats c
       JOIN chat_members cm ON c.id = cm.chat_id
-      JOIN profiles p ON cm.user_id = p.id
+      JOIN user_accounts u ON cm.user_id = u.id
       WHERE c.id = $1
       AND c.id IN (
         SELECT chat_id FROM chat_members WHERE user_id = $2

@@ -4,7 +4,7 @@ import Invoice from "../models/invoiceModel.js";
 import pool from "../config/db.js";
 
 export const validateContractCreation = [
-  body("expert_id").isUUID().withMessage("Valid expert ID is required"),
+  body("expert_profile_id").isUUID().withMessage("Valid expert profile ID is required"),
   body("project_id").isUUID().withMessage("Valid project ID is required"),
   body("engagement_model")
     .isIn(["daily", "sprint", "fixed"])
@@ -29,16 +29,16 @@ export const createContract = async (req, res) => {
       return res.status(400).json({ success: false, errors: errors.array() });
     }
 
-    const buyerId = req.user.id;
+    const buyerProfileId = req.user.profileId;
     const {
-      expert_id,
+      expert_profile_id,
       project_id,
       engagement_model,
       payment_terms,
       start_date,
     } = req.body;
 
-    if (expert_id === buyerId) {
+    if (expert_profile_id === buyerProfileId) {
       return res.status(400).json({
         success: false,
         message: "You cannot create a contract with yourself",
@@ -46,8 +46,9 @@ export const createContract = async (req, res) => {
       });
     }
 
+    // Check project ownership using buyer_profile_id
     const projectCheck = await pool.query(
-      "SELECT id, buyer_id FROM projects WHERE id = $1",
+      "SELECT id, buyer_profile_id FROM projects WHERE id = $1",
       [project_id]
     );
 
@@ -58,7 +59,7 @@ export const createContract = async (req, res) => {
       });
     }
 
-    if (projectCheck.rows[0].buyer_id !== buyerId) {
+    if (projectCheck.rows[0].buyer_profile_id !== buyerProfileId) {
       return res.status(403).json({
         success: false,
         message: "You can only create contracts for your own projects",
@@ -73,7 +74,7 @@ export const createContract = async (req, res) => {
     }
 
     const existingContract =
-      await Contract.findActiveOrPendingForPair(project_id, expert_id);
+      await Contract.findActiveOrPendingForPair(project_id, expert_profile_id);
 
     if (existingContract) {
       return res.status(400).json({
@@ -85,21 +86,22 @@ export const createContract = async (req, res) => {
 
     const contract = await Contract.createContract({
       project_id,
-      buyer_id: buyerId,
-      expert_id,
+      buyer_profile_id: buyerProfileId,
+      expert_profile_id,
       engagement_model,
       payment_terms,
       start_date,
     });
 
+    // Update proposals using expert_profile_id
     await pool.query(
-      "UPDATE proposals SET status = $1, updated_at = NOW() WHERE project_id = $2 AND expert_id = $3 AND status = $4",
-      ["accepted", project_id, expert_id, "pending"]
+      "UPDATE proposals SET status = $1, updated_at = NOW() WHERE project_id = $2 AND expert_profile_id = $3 AND status = $4",
+      ["accepted", project_id, expert_profile_id, "pending"]
     );
 
     await pool.query(
-      "UPDATE proposals SET status = $1, updated_at = NOW() WHERE project_id = $2 AND expert_id <> $3 AND status = $4",
-      ["rejected", project_id, expert_id, "pending"]
+      "UPDATE proposals SET status = $1, updated_at = NOW() WHERE project_id = $2 AND expert_profile_id <> $3 AND status = $4",
+      ["rejected", project_id, expert_profile_id, "pending"]
     );
 
     res.status(201).json({
@@ -126,7 +128,7 @@ export const acceptAndSignNda = async (req, res) => {
     }
 
     const { contractId } = req.params;
-    const expertId = req.user.id;
+    const expertProfileId = req.user.profileId;
     const { signature_name } = req.body;
     const ipAddress =
       req.ip || req.headers["x-forwarded-for"] || req.connection.remoteAddress;
@@ -139,7 +141,7 @@ export const acceptAndSignNda = async (req, res) => {
       });
     }
 
-    if (contract.expert_id !== expertId) {
+    if (contract.expert_profile_id !== expertProfileId) {
       return res.status(403).json({
         success: false,
         message: "You can only sign contracts assigned to you",
@@ -190,14 +192,14 @@ export const updateNda = async (req, res) => {
   try {
     const { contractId } = req.params;
     const { nda_custom_content, nda_status } = req.body;
-    const userId = req.user.id;
+    const buyerProfileId = req.user.profileId;
 
     const contract = await Contract.getById(contractId);
     if (!contract) {
       return res.status(404).json({ success: false, message: "Contract not found" });
     }
 
-    if (contract.buyer_id !== userId) {
+    if (contract.buyer_profile_id !== buyerProfileId) {
       return res.status(403).json({ success: false, message: "Unauthorized" });
     }
 
@@ -220,7 +222,7 @@ export const updateNda = async (req, res) => {
 export const getContractById = async (req, res) => {
   try {
     const { contractId } = req.params;
-    const userId = req.user.id;
+    const profileId = req.user.profileId;
     const userRole = req.user.role;
 
     const contract = await Contract.getContractWithDetails(contractId);
@@ -232,8 +234,8 @@ export const getContractById = async (req, res) => {
     }
 
     if (
-      contract.buyer_id !== userId &&
-      contract.expert_id !== userId &&
+      contract.buyer_profile_id !== profileId &&
+      contract.expert_profile_id !== profileId &&
       userRole !== "admin"
     ) {
       return res.status(403).json({
@@ -258,13 +260,13 @@ export const getContractById = async (req, res) => {
 
 export const getMyContracts = async (req, res) => {
   try {
-    const userId = req.user.id;
+    const profileId = req.user.profileId;
     const userRole = req.user.role;
 
     let contracts = [];
 
     if (userRole === "expert" || userRole === "buyer") {
-      contracts = await Contract.getContractsByUser(userId, userRole);
+      contracts = await Contract.getContractsByUser(profileId, userRole);
     } else if (userRole === "admin") {
       const result = await pool.query(
         "SELECT * FROM contracts ORDER BY created_at DESC"
@@ -309,7 +311,7 @@ export const getProjectContracts = async (req, res) => {
 export const declineContract = async (req, res) => {
   try {
     const { contractId } = req.params;
-    const expertId = req.user.id;
+    const expertProfileId = req.user.profileId;
 
     const contract = await Contract.getById(contractId);
     if (!contract) {
@@ -319,7 +321,7 @@ export const declineContract = async (req, res) => {
       });
     }
 
-    if (contract.expert_id !== expertId) {
+    if (contract.expert_profile_id !== expertProfileId) {
       return res.status(403).json({
         success: false,
         message: "You can only decline contracts assigned to you",
@@ -343,9 +345,9 @@ export const declineContract = async (req, res) => {
       UPDATE proposals
       SET status = 'pending', updated_at = NOW()
       WHERE project_id = $1
-        AND expert_id = $2
+        AND expert_profile_id = $2
       `,
-      [contract.project_id, expertId]
+      [contract.project_id, expertProfileId]
     );
 
     res.status(200).json({
@@ -366,7 +368,7 @@ export const declineContract = async (req, res) => {
 export const getContractInvoices = async (req, res) => {
   try {
     const { contractId } = req.params;
-    const userId = req.user.id;
+    const profileId = req.user.profileId;
     const userRole = req.user.role;
 
     const contract = await Contract.getById(contractId);
@@ -378,8 +380,8 @@ export const getContractInvoices = async (req, res) => {
     }
 
     if (
-      contract.buyer_id !== userId &&
-      contract.expert_id !== userId &&
+      contract.buyer_profile_id !== profileId &&
+      contract.expert_profile_id !== profileId &&
       userRole !== "admin"
     ) {
       return res.status(403).json({
@@ -432,7 +434,7 @@ export const fundEscrow = async (req, res) => {
   try {
     const { contractId } = req.params;
     const { amount } = req.body;
-    const userId = req.user.id;
+    const profileId = req.user.profileId;
     const userRole = req.user.role;
 
     if (!amount || amount <= 0) {
@@ -450,7 +452,7 @@ export const fundEscrow = async (req, res) => {
       });
     }
 
-    if (contract.buyer_id !== userId && userRole !== "admin") {
+    if (contract.buyer_profile_id !== profileId && userRole !== "admin") {
       return res.status(403).json({
         success: false,
         message: "Only the buyer can fund escrow",
@@ -477,7 +479,7 @@ export const fundEscrow = async (req, res) => {
 export const completeContract = async (req, res) => {
   try {
     const { id } = req.params;
-    const userId = req.user.id;
+    const profileId = req.user.profileId;
     const userRole = req.user.role;
 
     const contract = await Contract.getById(id);
@@ -488,7 +490,7 @@ export const completeContract = async (req, res) => {
       });
     }
 
-    if (contract.buyer_id !== userId && userRole !== "admin") {
+    if (contract.buyer_profile_id !== profileId && userRole !== "admin") {
       return res.status(403).json({
         success: false,
         message: "Only the buyer can complete the contract",
@@ -511,8 +513,8 @@ export const completeContract = async (req, res) => {
 
         await Invoice.createFinalFixed({
           contractId: id,
-          expertId: contract.expert_id,
-          buyerId: contract.buyer_id,
+          expertProfileId: contract.expert_profile_id,
+          buyerProfileId: contract.buyer_profile_id,
           paymentTerms: paymentTerms,
         });
       } catch (invoiceError) {
@@ -540,7 +542,7 @@ export const completeContract = async (req, res) => {
 export const finishSprint = async (req, res) => {
   try {
     const { id } = req.params;
-    const userId = req.user.id;
+    const profileId = req.user.profileId;
     const userRole = req.user.role;
 
     const contract = await Contract.getById(id);
@@ -558,7 +560,7 @@ export const finishSprint = async (req, res) => {
       });
     }
 
-    if (contract.buyer_id !== userId && userRole !== "admin") {
+    if (contract.buyer_profile_id !== profileId && userRole !== "admin") {
       return res.status(403).json({
         success: false,
         message: "Only the buyer can finish the sprint",
@@ -587,8 +589,8 @@ export const finishSprint = async (req, res) => {
     try {
       await Invoice.createFromSprint(
         id,
-        contract.expert_id,
-        contract.buyer_id,
+        contract.expert_profile_id,
+        contract.buyer_profile_id,
         paymentTerms,
         currentSprint
       );
@@ -630,73 +632,81 @@ export const finishSprint = async (req, res) => {
 };
 
 export const submitFeedback = async (req, res) => {
-    try {
-        const { contractId } = req.params;
-        const { rating, comment } = req.body;
-        const giverId = req.user.id;
+  try {
+    const { contractId } = req.params;
+    const { rating, comment } = req.body;
+    const giverProfileId = req.user.profileId;
 
-        const contract = await Contract.getById(contractId);
-        if (!contract) return res.status(404).json({ success: false, message: "Contract not found" });
-        
-        if (contract.status !== "completed") {
-            return res.status(400).json({ success: false, message: "Contract must be completed to leave a review" });
-        }
+    const contract = await Contract.getById(contractId);
+    if (!contract) return res.status(404).json({ success: false, message: "Contract not found" });
 
-        let receiverId;
-        if (giverId === contract.buyer_id) receiverId = contract.expert_id;
-        else if (giverId === contract.expert_id) receiverId = contract.buyer_id;
-        else return res.status(403).json({ success: false, message: "Unauthorized" });
-
-        const exists = await Contract.checkFeedbackExists(contractId, giverId);
-
-        if (exists) {
-            return res.status(400).json({ success: false, message: "Feedback already submitted" });
-        }
-
-        const feedback = await Contract.createFeedback(
-            contractId, 
-            giverId, 
-            receiverId, 
-            rating, 
-            comment, 
-            rating >= 4
-        );
-
-        if (receiverId === contract.expert_id) {
-            await Contract.updateExpertRating(receiverId);
-        }
-
-        res.status(201).json({ success: true, data: feedback });
-    } catch (error) {
-        console.error("Submit feedback error:", error);
-        res.status(500).json({ success: false, message: error.message });
+    if (contract.status !== "completed") {
+      return res.status(400).json({ success: false, message: "Contract must be completed to leave a review" });
     }
+
+    let receiverProfileId;
+    let receiverRole;
+    if (giverProfileId === contract.buyer_profile_id) {
+      receiverProfileId = contract.expert_profile_id;
+      receiverRole = 'expert';
+    } else if (giverProfileId === contract.expert_profile_id) {
+      receiverProfileId = contract.buyer_profile_id;
+      receiverRole = 'buyer';
+    } else {
+      return res.status(403).json({ success: false, message: "Unauthorized" });
+    }
+
+    const exists = await Contract.checkFeedbackExists(contractId, giverProfileId);
+
+    if (exists) {
+      return res.status(400).json({ success: false, message: "Feedback already submitted" });
+    }
+
+    const feedback = await Contract.createFeedback(
+      contractId,
+      giverProfileId,
+      receiverProfileId,
+      rating,
+      comment,
+      rating >= 4,
+      receiverRole
+    );
+
+    if (receiverRole === 'expert') {
+      await Contract.updateExpertRating(receiverProfileId);
+    }
+
+    res.status(201).json({ success: true, data: feedback });
+  } catch (error) {
+    console.error("Submit feedback error:", error);
+    res.status(500).json({ success: false, message: error.message });
+  }
 };
 
 export const getContractFeedback = async (req, res) => {
-    try {
-        const { contractId } = req.params;
-        const feedback = await Contract.getFeedbackByContractId(contractId);
-        res.status(200).json({ success: true, data: feedback });
-    } catch (error) {
-        res.status(500).json({ success: false, message: error.message });
-    }
+  try {
+    const { contractId } = req.params;
+    const feedback = await Contract.getFeedbackByContractId(contractId);
+    res.status(200).json({ success: true, data: feedback });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
 };
 
 export default {
-    createContract, 
-    acceptAndSignNda, 
-    getContractById, 
-    getMyContracts,
-    getProjectContracts, 
-    declineContract, 
-    getContractInvoices, 
-    fundEscrow, 
-    completeContract, 
-    finishSprint, 
-    validateContractCreation, 
-    validateNdaSigning,
-    updateNda, 
-    submitFeedback, 
-    getContractFeedback
+  createContract,
+  acceptAndSignNda,
+  getContractById,
+  getMyContracts,
+  getProjectContracts,
+  declineContract,
+  getContractInvoices,
+  fundEscrow,
+  completeContract,
+  finishSprint,
+  validateContractCreation,
+  validateNdaSigning,
+  updateNda,
+  submitFeedback,
+  getContractFeedback
 };

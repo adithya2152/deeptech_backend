@@ -12,16 +12,22 @@ import { supabase as supabaseClient } from "../config/supabase.js";
  */
 const startDirectChat = async (req, res) => {
   try {
-    const { participantId } = req.body;
+    const { participantId, participantRole } = req.body;
     const userId = req.user.id;
+    const userRole = req.user.role;
 
     if (userId === participantId) {
       return res.status(400).json({ error: "Cannot start chat with yourself" });
     }
 
+    // Determine participant's role (default based on initiator's role)
+    const otherRole = participantRole || (userRole === 'buyer' ? 'expert' : 'buyer');
+
     const chat = await messageModel.findOrCreateDirectChat(
       userId,
-      participantId
+      participantId,
+      userRole,
+      otherRole
     );
 
     res.status(200).json(chat);
@@ -32,12 +38,13 @@ const startDirectChat = async (req, res) => {
 };
 
 /**
- * Get all chats for the current user
+ * Get all chats for the current user (filtered by role)
  */
 const getUserChats = async (req, res) => {
   try {
     const userId = req.user.id;
-    const chats = await messageModel.getUserChats(userId);
+    const role = req.user.role; // Filter chats by current role
+    const chats = await messageModel.getUserChats(userId, role);
     res.status(200).json(chats);
   } catch (error) {
     console.error("GET CHATS ERROR:", error);

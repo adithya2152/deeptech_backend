@@ -1,11 +1,11 @@
 import pool from "../config/db.js";
 
 const Proposal = {
-  // Create or reuse a proposal (enforces 1 per project+expert)
+  // Create or reuse a proposal (enforces 1 per project+expert_profile)
   create: async (data) => {
     const {
       project_id,
-      expert_id,
+      expert_profile_id,
       engagement_model,
       rate,
       duration_days,
@@ -14,15 +14,15 @@ const Proposal = {
       message,
     } = data;
 
-    // 1) Check if a proposal already exists for this project+expert
+    // 1) Check if a proposal already exists for this project+expert_profile
     const existingRes = await pool.query(
       `
     SELECT *
     FROM proposals
-    WHERE project_id = $1 AND expert_id = $2
+    WHERE project_id = $1 AND expert_profile_id = $2
     LIMIT 1
     `,
-      [project_id, expert_id]
+      [project_id, expert_profile_id]
     );
 
     const existing = existingRes.rows[0];
@@ -61,7 +61,7 @@ const Proposal = {
     const insertQuery = `
     INSERT INTO proposals (
       project_id,
-      expert_id,
+      expert_profile_id,
       engagement_model,
       rate,
       duration_days,
@@ -78,7 +78,7 @@ const Proposal = {
 
     const values = [
       project_id,
-      expert_id,
+      expert_profile_id,
       engagement_model,
       rate,
       duration_days,
@@ -91,16 +91,16 @@ const Proposal = {
     return rows[0];
   },
 
-  // rest of your model stays the same
   getById: async (id) => {
     const query = `
       SELECT p.*, 
         pr.title as project_title,
-        prof.first_name as expert_first_name,
-        prof.last_name as expert_last_name
+        u.first_name as expert_first_name,
+        u.last_name as expert_last_name
       FROM proposals p
       JOIN projects pr ON p.project_id = pr.id
-      JOIN profiles prof ON p.expert_id = prof.id
+      JOIN profiles prof ON p.expert_profile_id = prof.id
+      JOIN user_accounts u ON prof.user_id = u.id
       WHERE p.id = $1
     `;
     const { rows } = await pool.query(query, [id]);
@@ -111,10 +111,12 @@ const Proposal = {
     const query = `
       SELECT
         p.*,
-        prof.first_name || ' ' || prof.last_name AS expert_name,
-        prof.avatar_url AS expert_avatar
+        u.id AS expert_user_id,
+        u.first_name || ' ' || u.last_name AS expert_name,
+        u.avatar_url AS expert_avatar
       FROM proposals p
-      JOIN profiles prof ON p.expert_id = prof.id
+      JOIN profiles prof ON p.expert_profile_id = prof.id
+      JOIN user_accounts u ON prof.user_id = u.id
       WHERE p.project_id = $1
         AND p.status = 'pending'
       ORDER BY p.created_at DESC
@@ -123,7 +125,7 @@ const Proposal = {
     return rows;
   },
 
-  getByExpertId: async (expert_id) => {
+  getByExpertProfileId: async (expert_profile_id) => {
     const query = `
       SELECT p.*, 
         pr.title as project_title,
@@ -132,10 +134,10 @@ const Proposal = {
         pr.budget_max
       FROM proposals p
       JOIN projects pr ON p.project_id = pr.id
-      WHERE p.expert_id = $1
+      WHERE p.expert_profile_id = $1
       ORDER BY p.created_at DESC
     `;
-    const { rows } = await pool.query(query, [expert_id]);
+    const { rows } = await pool.query(query, [expert_profile_id]);
     return rows;
   },
 

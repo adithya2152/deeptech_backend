@@ -5,7 +5,7 @@ const DayWorkSummary = {
   create: async (data) => {
     const {
       contract_id,
-      expert_id,
+      expert_profile_id,
       work_date,
       total_hours,
       status = "pending",
@@ -14,7 +14,7 @@ const DayWorkSummary = {
     const query = `
       INSERT INTO day_work_summaries (
         contract_id,
-        expert_id,
+        expert_profile_id,
         work_date,
         total_hours,
         status,
@@ -24,7 +24,7 @@ const DayWorkSummary = {
       RETURNING *;
     `;
 
-    const values = [contract_id, expert_id, work_date, total_hours, status];
+    const values = [contract_id, expert_profile_id, work_date, total_hours, status];
 
     const { rows } = await pool.query(query, values);
     return rows[0];
@@ -48,16 +48,16 @@ const DayWorkSummary = {
     return rows;
   },
 
-  // Get by expert ID
-  getByExpertId: async (expert_id) => {
+  // Get by expert profile ID
+  getByExpertProfileId: async (expert_profile_id) => {
     const query = `
       SELECT dws.*, c.project_id
       FROM day_work_summaries dws
       JOIN contracts c ON dws.contract_id = c.id
-      WHERE dws.expert_id = $1
+      WHERE dws.expert_profile_id = $1
       ORDER BY dws.work_date DESC, dws.created_at DESC
     `;
-    const { rows } = await pool.query(query, [expert_id]);
+    const { rows } = await pool.query(query, [expert_profile_id]);
     return rows;
   },
 

@@ -28,7 +28,7 @@ export const createProposal = async (req, res) => {
       return res.status(400).json({ success: false, errors: errors.array() });
     }
 
-    const expertId = req.user.id;
+    const expertProfileId = req.user.profileId;
     const {
       project_id,
       engagement_model,
@@ -60,10 +60,10 @@ export const createProposal = async (req, res) => {
       });
     }
 
-    // Create proposal
+    // Create proposal using expert_profile_id
     const proposal = await Proposal.create({
       project_id,
-      expert_id: expertId,
+      expert_profile_id: expertProfileId,
       engagement_model,
       rate,
       duration_days,
@@ -111,9 +111,9 @@ export const getProposalsByProject = async (req, res) => {
 // Get all proposals by current expert
 export const getMyProposals = async (req, res) => {
   try {
-    const expertId = req.user.id;
+    const expertProfileId = req.user.profileId;
 
-    const proposals = await Proposal.getByExpertId(expertId);
+    const proposals = await Proposal.getByExpertProfileId(expertProfileId);
 
     res.status(200).json({
       success: true,
@@ -160,7 +160,7 @@ export const getProposalById = async (req, res) => {
 export const updateProposal = async (req, res) => {
   try {
     const { proposalId } = req.params;
-    const expertId = req.user.id;
+    const expertProfileId = req.user.profileId;
     const updates = req.body;
 
     const proposal = await Proposal.getById(proposalId);
@@ -171,8 +171,8 @@ export const updateProposal = async (req, res) => {
       });
     }
 
-    // Verify expert owns this proposal
-    if (proposal.expert_id !== expertId) {
+    // Verify expert owns this proposal using expert_profile_id
+    if (proposal.expert_profile_id !== expertProfileId) {
       return res.status(403).json({
         success: false,
         message: "You can only update your own proposals",
@@ -208,7 +208,7 @@ export const updateProposal = async (req, res) => {
 export const withdrawProposal = async (req, res) => {
   try {
     const { proposalId } = req.params;
-    const expertId = req.user.id;
+    const expertProfileId = req.user.profileId;
 
     const proposal = await Proposal.getById(proposalId);
     if (!proposal) {
@@ -218,8 +218,8 @@ export const withdrawProposal = async (req, res) => {
       });
     }
 
-    // Verify expert owns this proposal
-    if (proposal.expert_id !== expertId) {
+    // Verify expert owns this proposal using expert_profile_id
+    if (proposal.expert_profile_id !== expertProfileId) {
       return res.status(403).json({
         success: false,
         message: "You can only withdraw your own proposals",

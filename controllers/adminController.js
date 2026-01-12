@@ -1,10 +1,30 @@
 import AdminModel from "../models/adminModel.js";
+import pool from "../config/db.js";
 
-export const requireAdmin = (req, res, next) => {
-  if (req.user?.role !== 'admin') {
+export const requireAdmin = async (req, res, next) => {
+  try {
+    // First check JWT role
+    if (req.user?.role === 'admin') {
+      return next();
+    }
+
+    const userId = req.user?.id;
+    if (userId) {
+      const { rows } = await pool.query(
+        'SELECT role FROM user_accounts WHERE id = $1',
+        [userId]
+      );
+
+      if (rows.length > 0 && rows[0].role === 'admin') {
+        return next();
+      }
+    }
+
     return res.status(403).json({ success: false, message: 'Admin access required' });
+  } catch (error) {
+    console.error('[requireAdmin] Error:', error);
+    return res.status(500).json({ success: false, message: 'Authorization check failed' });
   }
-  next();
 };
 
 export const getStats = async (req, res) => {
@@ -106,7 +126,7 @@ export const unbanUser = async (req, res) => {
 export const verifyExpert = async (req, res) => {
   try {
     const { id } = req.params;
-    await AdminModel.verifyExpert(id);
+    await AdminModel.verifyExpertByAdmin(id, req.user?.id || null);
     res.json({ success: true, message: 'Expert verified successfully' });
   } catch (e) { res.status(500).json({ success: false, error: e.message }); }
 };
@@ -145,7 +165,7 @@ export const actionReport = async (req, res) => {
     } else if (action === 'ban') {
       await AdminModel.updateReportStatus(id, 'resolved', 'User banned');
     } else {
-        await AdminModel.updateReportStatus(id, 'resolved', `Action taken: ${action}`);
+      await AdminModel.updateReportStatus(id, 'resolved', `Action taken: ${action}`);
     }
     res.json({ success: true, message: 'Report action taken' });
   } catch (e) { res.status(500).json({ success: false, error: e.message }); }

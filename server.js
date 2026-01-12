@@ -17,6 +17,9 @@ import dayWorkSummariesRoutes from "./routes/dayWorkSummariesRoutes.js";
 import invitationRoutes from "./routes/invitationRoutes.js";
 import profileRoutes from './routes/profileRoutes.js';
 import buyerRoutes from './routes/buyerRoutes.js';
+import scoringRoutes from "./routes/scoringRoutes.js";
+import rankingRoutes from "./routes/rankingRoutes.js";
+import tagsRoutes from "./routes/tagsRoutes.js";
 import http from "http";
 import { Server } from "socket.io";
 import { initializeStorageBuckets } from "./utils/storage.js";
@@ -240,6 +243,9 @@ app.use('/api/reports', reportRoutes);
 app.use('/api/disputes', disputeRoutes);
 app.use("/api/day-work-summaries", dayWorkSummariesRoutes);
 app.use("/api/invitations", invitationRoutes);
+app.use("/api/scoring", scoringRoutes);
+app.use("/api/ranking", rankingRoutes);
+app.use("/api/tags", tagsRoutes);
 
 app.use((req, res) => {
   res.status(404).json({

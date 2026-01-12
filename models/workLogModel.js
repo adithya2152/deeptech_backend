@@ -63,15 +63,15 @@ const WorkLog = {
   },
 
   // Get work logs by expert (via contract)
-  getByExpertId: async (expert_id) => {
+  getByExpertProfileId: async (expert_profile_id) => {
     const query = `
       SELECT wl.* 
       FROM work_logs wl
       JOIN contracts c ON wl.contract_id = c.id
-      WHERE c.expert_id = $1
+      WHERE c.expert_profile_id = $1
       ORDER BY wl.created_at DESC
     `;
-    const { rows } = await pool.query(query, [expert_id]);
+    const { rows } = await pool.query(query, [expert_profile_id]);
     return rows;
   },
 

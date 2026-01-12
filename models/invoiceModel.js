@@ -5,8 +5,8 @@ const Invoice = {
   create: async (data) => {
     const {
       contract_id,
-      expert_id,
-      buyer_id,
+      expert_profile_id,
+      buyer_profile_id,
       amount,
       total_hours,
       status = "pending",
@@ -20,8 +20,8 @@ const Invoice = {
     const query = `
       INSERT INTO invoices (
         contract_id,
-        expert_id,
-        buyer_id,
+        expert_profile_id,
+        buyer_profile_id,
         amount,
         total_hours,
         status,
@@ -38,8 +38,8 @@ const Invoice = {
 
     const values = [
       contract_id,
-      expert_id,
-      buyer_id,
+      expert_profile_id,
+      buyer_profile_id,
       amount,
       total_hours || 0,
       status,
@@ -101,8 +101,8 @@ const Invoice = {
   createFromDailyLog: async (
     dailySummaryId,
     contractId,
-    expertId,
-    buyerId,
+    expertProfileId,
+    buyerProfileId,
     paymentTerms,
     workDate,
     totalHours
@@ -133,8 +133,8 @@ const Invoice = {
 
     return await Invoice.create({
       contract_id: contractId,
-      expert_id: expertId,
-      buyer_id: buyerId,
+      expert_profile_id: expertProfileId,
+      buyer_profile_id: buyerProfileId,
       amount: rate,
       total_hours: totalHours || 0,
       status: "pending",
@@ -149,8 +149,8 @@ const Invoice = {
   // Create invoice from finished sprint
   createFromSprint: async (
     contractId,
-    expertId,
-    buyerId,
+    expertProfileId,
+    buyerProfileId,
     paymentTerms,
     sprintNumber
   ) => {
@@ -171,8 +171,8 @@ const Invoice = {
 
     return await Invoice.create({
       contract_id: contractId,
-      expert_id: expertId,
-      buyer_id: buyerId,
+      expert_profile_id: expertProfileId,
+      buyer_profile_id: buyerProfileId,
       amount: rate,
       total_hours: 0,
       status: "pending",
@@ -183,11 +183,12 @@ const Invoice = {
       source_id: sourceId,
     });
   },
+
   // Create invoice from milestone approval
   createFromMilestone: async (
     contractId,
-    expertId,
-    buyerId,
+    expertProfileId,
+    buyerProfileId,
     milestoneAmount,
     milestoneId
   ) => {
@@ -200,8 +201,8 @@ const Invoice = {
 
     return await Invoice.create({
       contract_id: contractId,
-      expert_id: expertId,
-      buyer_id: buyerId,
+      expert_profile_id: expertProfileId,
+      buyer_profile_id: buyerProfileId,
       amount: milestoneAmount,
       total_hours: 0,
       status: "pending",
@@ -215,7 +216,7 @@ const Invoice = {
 
   // Create final fixed invoice when contract completes
   createFinalFixed: async (contractData) => {
-    const { contractId, expertId, buyerId, paymentTerms } = contractData;
+    const { contractId, expertProfileId, buyerProfileId, paymentTerms } = contractData;
 
     const sourceId = contractId;
     const existing = await Invoice.findBySource("final_fixed", sourceId);
@@ -236,8 +237,8 @@ const Invoice = {
 
     return await Invoice.create({
       contract_id: contractId,
-      expert_id: expertId,
-      buyer_id: buyerId,
+      expert_profile_id: expertProfileId,
+      buyer_profile_id: buyerProfileId,
       amount: finalAmount,
       total_hours: 0,
       status: "pending",

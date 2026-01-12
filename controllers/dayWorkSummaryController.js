@@ -21,7 +21,7 @@ export const createDayWorkSummary = async (req, res) => {
     }
 
     const { contract_id, work_date, total_hours } = req.body;
-    const expertId = req.user.id;
+    const expertProfileId = req.user.profileId;
 
     // Get contract
     const contract = await Contract.getById(contract_id);
@@ -32,8 +32,8 @@ export const createDayWorkSummary = async (req, res) => {
       });
     }
 
-    // Verify expert owns this contract
-    if (contract.expert_id !== expertId) {
+    // Verify expert owns this contract using expert_profile_id
+    if (contract.expert_profile_id !== expertProfileId) {
       return res.status(403).json({
         success: false,
         message: "You can only submit work summaries for your own contracts",
@@ -73,10 +73,10 @@ export const createDayWorkSummary = async (req, res) => {
       }
     }
 
-    // Create day work summary
+    // Create day work summary using expert_profile_id
     const summary = await DayWorkSummary.create({
       contract_id,
-      expert_id: expertId,
+      expert_profile_id: expertProfileId,
       work_date,
       total_hours,
       status: "pending",
@@ -101,7 +101,7 @@ export const createDayWorkSummary = async (req, res) => {
 export const getDayWorkSummariesByContract = async (req, res) => {
   try {
     const { contractId } = req.params;
-    const userId = req.user.id;
+    const profileId = req.user.profileId;
 
     // Get contract to verify access
     const contract = await Contract.getById(contractId);
@@ -112,10 +112,10 @@ export const getDayWorkSummariesByContract = async (req, res) => {
       });
     }
 
-    // Check access: expert, buyer, or admin
+    // Check access: expert, buyer, or admin using profile IDs
     if (
-      contract.expert_id !== userId &&
-      contract.buyer_id !== userId &&
+      contract.expert_profile_id !== profileId &&
+      contract.buyer_profile_id !== profileId &&
       req.user.role !== "admin"
     ) {
       return res.status(403).json({
@@ -145,7 +145,7 @@ export const getDayWorkSummariesByContract = async (req, res) => {
 export const getDayWorkSummaryById = async (req, res) => {
   try {
     const { summaryId } = req.params;
-    const userId = req.user.id;
+    const profileId = req.user.profileId;
 
     const summary = await DayWorkSummary.getById(summaryId);
     if (!summary) {
@@ -164,10 +164,10 @@ export const getDayWorkSummaryById = async (req, res) => {
       });
     }
 
-    // Check access
+    // Check access using profile IDs
     if (
-      contract.expert_id !== userId &&
-      contract.buyer_id !== userId &&
+      contract.expert_profile_id !== profileId &&
+      contract.buyer_profile_id !== profileId &&
       req.user.role !== "admin"
     ) {
       return res.status(403).json({
@@ -195,7 +195,7 @@ export const updateDayWorkSummaryStatus = async (req, res) => {
   try {
     const { summaryId } = req.params;
     const { status, reviewer_comment } = req.body;
-    const userId = req.user.id;
+    const profileId = req.user.profileId;
 
     const summary = await DayWorkSummary.getById(summaryId);
     if (!summary) {
@@ -213,8 +213,8 @@ export const updateDayWorkSummaryStatus = async (req, res) => {
       });
     }
 
-    // Only buyer (or admin) can approve/reject
-    if (contract.buyer_id !== userId && req.user.role !== "admin") {
+    // Only buyer (or admin) can approve/reject using buyer_profile_id
+    if (contract.buyer_profile_id !== profileId && req.user.role !== "admin") {
       return res.status(403).json({
         success: false,
         message: "Only the buyer can approve or reject work summaries",
@@ -246,8 +246,8 @@ export const updateDayWorkSummaryStatus = async (req, res) => {
         const invoice = await Invoice.createFromDailyLog(
           summaryId,
           contract.id,
-          contract.expert_id,
-          contract.buyer_id,
+          contract.expert_profile_id,
+          contract.buyer_profile_id,
           paymentTerms,
           summary.work_date,
           summary.total_hours
@@ -293,9 +293,9 @@ export const updateDayWorkSummaryStatus = async (req, res) => {
 // Get my day work summaries (Expert only)
 export const getMyDayWorkSummaries = async (req, res) => {
   try {
-    const expertId = req.user.id;
+    const expertProfileId = req.user.profileId;
 
-    const summaries = await DayWorkSummary.getByExpertId(expertId);
+    const summaries = await DayWorkSummary.getByExpertProfileId(expertProfileId);
 
     res.status(200).json({
       success: true,

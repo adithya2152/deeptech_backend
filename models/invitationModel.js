@@ -1,62 +1,63 @@
 import pool from '../config/db.js';
 
 export const Invitation = {
-  async findPending(projectId, expertId) {
+  async findPending(projectId, expertProfileId) {
     const result = await pool.query(
-      'SELECT id FROM project_invitations WHERE project_id = $1 AND expert_id = $2 AND status = $3',
-      [projectId, expertId, 'pending']
+      'SELECT id FROM project_invitations WHERE project_id = $1 AND expert_profile_id = $2 AND status = $3',
+      [projectId, expertProfileId, 'pending']
     );
     return result.rows[0];
   },
 
-  async create(projectId, expertId, message) {
+  async create(projectId, expertProfileId, message) {
     const result = await pool.query(
-      `INSERT INTO project_invitations (project_id, expert_id, message)
+      `INSERT INTO project_invitations (project_id, expert_profile_id, message)
        VALUES ($1, $2, $3) RETURNING *`,
-      [projectId, expertId, message]
+      [projectId, expertProfileId, message]
     );
     return result.rows[0];
   },
 
-  async getByExpertId(expertId) {
+  async getByExpertProfileId(expertProfileId) {
     const result = await pool.query(
       `SELECT pi.*,
               json_build_object(
-                'id', p.id,
-                'title', p.title,
-                'description', p.description,
-                'budget_min', p.budget_min,
-                'budget_max', p.budget_max,
-                'type', p.domain,
-                'duration', p.deadline
+                'id', proj.id,
+                'title', proj.title,
+                'description', proj.description,
+                'budget_min', proj.budget_min,
+                'budget_max', proj.budget_max,
+                'type', proj.domain,
+                'duration', proj.deadline
               ) as project,
               json_build_object(
-                'first_name', pr.first_name,
-                'last_name', pr.last_name,
-                'avatar_url', pr.avatar_url
+                'first_name', u.first_name,
+                'last_name', u.last_name,
+                'avatar_url', u.avatar_url
               ) as buyer
        FROM project_invitations pi
-       JOIN projects p ON pi.project_id = p.id
-       JOIN profiles pr ON p.buyer_id = pr.id
-       WHERE pi.expert_id = $1
+       JOIN projects proj ON pi.project_id = proj.id
+       JOIN profiles bp ON proj.buyer_profile_id = bp.id
+       JOIN user_accounts u ON bp.user_id = u.id
+       WHERE pi.expert_profile_id = $1
        ORDER BY pi.created_at DESC`,
-      [expertId]
+      [expertProfileId]
     );
     return result.rows;
   },
 
-  async updateStatus(id, expertId, status) {
+  async updateStatus(id, expertProfileId, status) {
     const result = await pool.query(
       `UPDATE project_invitations
        SET status = $1
-       WHERE id = $2 AND expert_id = $3
+       WHERE id = $2 AND expert_profile_id = $3
        RETURNING *`,
-      [status, id, expertId]
+      [status, id, expertProfileId]
     );
     return result.rows[0];
   },
 
-  async acceptInvitationTransaction(id, expertId) {
+  async acceptInvitationTransaction(id, expertProfileId) {
     const client = await pool.connect();
     try {
       await client.query('BEGIN');
@@ -65,11 +66,11 @@ export const Invitation = {
       const invRes = await client.query(
         `UPDATE project_invitations 
          SET status = 'accepted' 
-         WHERE id = $1 AND expert_id = $2 
+         WHERE id = $1 AND expert_profile_id = $2 
          RETURNING *`,
-        [id, expertId]
+        [id, expertProfileId]
       );
-      
+
       if (invRes.rows.length === 0) {
         throw new Error('Invitation not found or unauthorized');
       }
@@ -82,26 +83,26 @@ export const Invitation = {
       );
       const project = projectRes.rows[0];
 
-      // 3. Update Project Status to Active and assign Expert
+      // 3. Update Project Status to Active (expert is linked through contract, not project)
       await client.query(
         `UPDATE projects 
-         SET status = 'active', expert_id = $1, updated_at = NOW() 
-         WHERE id = $2`,
-        [expertId, invitation.project_id]
+         SET status = 'active', updated_at = NOW() 
+         WHERE id = $1`,
+        [invitation.project_id]
       );
 
       // 4. Create Contract (Draft/Pending)
       // Using 'daily' as a default engagement model since actual terms are negotiated in contract phase
       const contractRes = await client.query(
         `INSERT INTO contracts (
-           project_id, buyer_id, expert_id, 
+           project_id, buyer_profile_id, expert_profile_id, 
            engagement_model, payment_terms, status, start_date
          ) VALUES ($1, $2, $3, $4, $5, $6, $7) 
          RETURNING id`,
         [
           project.id,
-          project.buyer_id,
-          expertId,
+          project.buyer_profile_id,
+          expertProfileId,
           'daily', // Default initial model
           JSON.stringify({ rate: 0, currency: 'USD', note: 'Draft terms from invitation' }),
           'pending',
@@ -110,10 +111,10 @@ export const Invitation = {
       );
 
       await client.query('COMMIT');
-      
-      return { 
-        invitation, 
-        contractId: contractRes.rows[0].id 
+
+      return {
+        invitation,
+        contractId: contractRes.rows[0].id
       };
     } catch (e) {
       await client.query('ROLLBACK');
@@ -123,10 +124,10 @@ export const Invitation = {
     }
   },
 
-  async verifyProjectOwnership(projectId, buyerId) {
-     const result = await pool.query(
-      'SELECT id FROM projects WHERE id = $1 AND buyer_id = $2',
-      [projectId, buyerId]
+  async verifyProjectOwnership(projectId, buyerProfileId) {
+    const result = await pool.query(
+      'SELECT id FROM projects WHERE id = $1 AND buyer_profile_id = $2',
+      [projectId, buyerProfileId]
     );
     return result.rows.length > 0;
   }

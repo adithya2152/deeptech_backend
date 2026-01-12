@@ -1,22 +1,43 @@
 import pool from "../config/db.js";
 
 const ProfileModel = {
-  ensureBuyerRow: async (userId) => {
-    await pool.query(
-      `INSERT INTO buyers (id) VALUES ($1)
-       ON CONFLICT (id) DO NOTHING`,
+  // Get active profile for a user
+  getActiveProfile: async (userId) => {
+    const { rows } = await pool.query(
+      `SELECT id, profile_type, is_active FROM profiles 
+       WHERE user_id = $1 AND is_active = true
+       LIMIT 1`,
       [userId]
+    );
+    return rows[0] || null;
+  },
+
+  // Get all profiles for a user
+  getAllProfiles: async (userId) => {
+    const { rows } = await pool.query(
+      `SELECT id, profile_type, is_active, created_at FROM profiles WHERE user_id = $1`,
+      [userId]
+    );
+    return rows;
+  },
+
+  ensureBuyerRow: async (userId, buyerProfileId) => {
+    await pool.query(
+      `INSERT INTO buyers (id, buyer_profile_id) VALUES ($1, $2)
+       ON CONFLICT (buyer_profile_id) DO NOTHING`,
+      [userId, buyerProfileId]
     );
   },
 
+  // Get base user data from user_accounts
   getBaseProfileById: async (userId) => {
     const { rows } = await pool.query(
       `
       SELECT
         id, email, first_name, last_name, username, role,
         avatar_url, banner_url, timezone, profile_completion, 
-        created_at, updated_at, last_login, email_verified
-      FROM profiles
+        created_at, updated_at, last_login, email_verified, country
+      FROM user_accounts
       WHERE id = $1
       `,
       [userId]
@@ -24,33 +45,60 @@ const ProfileModel = {
     return rows[0];
   },
 
+  // Get expert profile data by joining via expert_profile_id
   getExpertProfileById: async (userId) => {
     const { rows } = await pool.query(
       `
       SELECT
-        domains,
-        experience_summary,
-        skills,
-        avg_daily_rate,
-        avg_fixed_rate,
-        avg_sprint_rate,
-        preferred_engagement_mode,
-        languages,
-        years_experience,
-        availability_status,
-        portfolio_url,
-        profile_video_url,
-        linkedin_url,
-        github_url,
-        rating,
-        review_count,
-        total_hours,
-        expert_status,
-        is_profile_complete
-      FROM experts
-      WHERE id = $1
+        e.expert_profile_id,
+        e.domains,
+        e.experience_summary,
+        e.skills,
+        e.avg_daily_rate,
+        e.avg_fixed_rate,
+        e.avg_sprint_rate,
+        e.preferred_engagement_mode,
+        e.languages,
+        e.years_experience,
+        e.availability_status,
+        e.portfolio_url,
+        e.profile_video_url,
+        e.linkedin_url,
+        e.github_url,
+        e.rating,
+        e.review_count,
+        e.total_hours,
+        e.expert_status,
+        e.is_profile_complete,
+        e.is_active
+      FROM experts e
+      JOIN profiles p ON e.expert_profile_id = p.id
+      WHERE p.user_id = $1 AND p.profile_type = 'expert'
       `,
       [userId]
+    );
+    return rows[0];
+  },
+
+  // Get expert profile by profile ID directly
+  getExpertByProfileId: async (profileId) => {
+    const { rows } = await pool.query(
+      `
+      SELECT
+        e.*,
+        u.first_name,
+        u.last_name,
+        u.email,
+        u.avatar_url,
+        u.banner_url,
+        u.timezone,
+        u.country
+      FROM experts e
+      JOIN profiles p ON e.expert_profile_id = p.id
+      JOIN user_accounts u ON p.user_id = u.id
+      WHERE e.expert_profile_id = $1
+      `,
+      [profileId]
     );
     return rows[0];
   },
@@ -59,8 +107,9 @@ const ProfileModel = {
     const { rows } = await pool.query(
       `
       SELECT 1
-      FROM expert_documents
-      WHERE expert_id = $1 AND document_type = 'resume'
+      FROM expert_documents ed
+      JOIN profiles p ON ed.expert_profile_id = p.id
+      WHERE p.user_id = $1 AND ed.document_type = 'resume'
       LIMIT 1
       `,
       [userId]
@@ -72,26 +121,52 @@ const ProfileModel = {
     const { rows } = await pool.query(
       `
       SELECT
-        company_name,
-        company_description,
-        company_size,
-        industry,
-        website,
-        billing_country,
-        client_type,
-        social_proof,
-        company_website,
-        vat_id,
-        total_spent,
-        projects_posted,
-        hires_made,
-        avg_contract_value,
-        preferred_engagement_model,
-        verified
-      FROM buyers
-      WHERE id = $1
+        b.buyer_profile_id,
+        b.company_name,
+        b.company_description,
+        b.company_size,
+        b.industry,
+        b.website,
+        b.billing_country,
+        b.client_type,
+        b.social_proof,
+        b.company_website,
+        b.vat_id,
+        b.total_spent,
+        b.projects_posted,
+        b.hires_made,
+        b.avg_contract_value,
+        b.preferred_engagement_model,
+        b.verified,
+        b.is_active
+      FROM buyers b
+      JOIN profiles p ON b.buyer_profile_id = p.id
+      WHERE p.user_id = $1 AND p.profile_type = 'buyer'
       `,
       [userId]
+    );
+    return rows[0];
+  },
+
+  // Get buyer by profile ID directly
+  getBuyerByProfileId: async (profileId) => {
+    const { rows } = await pool.query(
+      `
+      SELECT
+        b.*,
+        u.first_name,
+        u.last_name,
+        u.email,
+        u.avatar_url,
+        u.banner_url,
+        u.timezone,
+        u.country
+      FROM buyers b
+      JOIN profiles p ON b.buyer_profile_id = p.id
+      JOIN user_accounts u ON p.user_id = u.id
+      WHERE b.buyer_profile_id = $1
+      `,
+      [profileId]
     );
     return rows[0];
   },
@@ -123,7 +198,7 @@ const ProfileModel = {
 
     const { rows } = await pool.query(
       `
-      UPDATE profiles
+      UPDATE user_accounts
       SET ${fields.join(", ")}, updated_at = NOW()
       WHERE id = $${i}
       RETURNING *
@@ -162,16 +237,18 @@ const ProfileModel = {
 
     if (!fields.length) return null;
 
-    values.push(userId);
-
+    // Update via buyer_profile_id join
     const { rows } = await pool.query(
       `
-      UPDATE buyers
+      UPDATE buyers b
       SET ${fields.join(", ")}
-      WHERE id = $${i}
-      RETURNING *
+      FROM profiles p
+      WHERE b.buyer_profile_id = p.id 
+        AND p.user_id = $${i}
+        AND p.profile_type = 'buyer'
+      RETURNING b.*
       `,
-      values
+      [...values, userId]
     );
 
     return rows[0];
@@ -180,7 +257,7 @@ const ProfileModel = {
   setProfileCompletion: async (userId, completion) => {
     const { rows } = await pool.query(
       `
-      UPDATE profiles
+      UPDATE user_accounts
       SET profile_completion = $2,
           updated_at = NOW()
       WHERE id = $1
@@ -195,20 +272,24 @@ const ProfileModel = {
     const base = await ProfileModel.getBaseProfileById(userId);
     if (!base) return null;
 
+    // Get active profile to determine role
+    const activeProfile = await ProfileModel.getActiveProfile(userId);
+    const role = activeProfile?.profile_type || base.role;
+
     let buyer = null;
     let expert = null;
     let expertHasResume = false;
 
-    if (base.role === "buyer") {
+    if (role === "buyer") {
       buyer = await ProfileModel.getBuyerProfileById(userId);
     }
 
-    if (base.role === "expert") {
+    if (role === "expert") {
       expert = await ProfileModel.getExpertProfileById(userId);
       expertHasResume = await ProfileModel.getExpertHasResume(userId);
     }
 
-    return { base, buyer, expert, expertHasResume };
+    return { base: { ...base, role }, buyer, expert, expertHasResume };
   },
 
   getUserReviews: async (userId, role = null) => {
@@ -227,11 +308,11 @@ const ProfileModel = {
         f.comment AS comment,
         f.helpful_count,
         f.created_at,
-        (p.first_name || ' ' || p.last_name) AS giver_name,
-        p.avatar_url AS giver_avatar,
+        (u.first_name || ' ' || u.last_name) AS giver_name,
+        u.avatar_url AS giver_avatar,
         pr.title AS project_title
       FROM feedback f
-      LEFT JOIN profiles p ON p.id = f.giver_id
+      LEFT JOIN user_accounts u ON u.id = f.giver_id
       LEFT JOIN contracts c ON c.id = f.contract_id
       LEFT JOIN projects pr ON pr.id = c.project_id
       WHERE f.receiver_id = $1${roleFilter}
@@ -255,12 +336,17 @@ const ProfileModel = {
     const base = await ProfileModel.getBaseProfileById(userId);
     if (!base) return null;
 
+    const activeProfile = await ProfileModel.getActiveProfile(userId);
+    const role = activeProfile?.profile_type || base.role;
+
     let roleData = null;
-    if (base.role === "expert") roleData = await ProfileModel.getExpertProfileById(userId);
-    if (base.role === "buyer") roleData = await ProfileModel.getBuyerProfileById(userId);
+    if (role === "expert") roleData = await ProfileModel.getExpertProfileById(userId);
+    if (role === "buyer") roleData = await ProfileModel.getBuyerProfileById(userId);
 
     return {
       ...base,
+      role,
+      profileId: activeProfile?.id || null,
       ...(roleData || {}),
     };
   },

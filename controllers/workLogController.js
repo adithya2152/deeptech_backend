@@ -20,6 +20,7 @@ export const createWorkLog = async (req, res) => {
     }
 
     const { contract_id, type, checklist, problems_faced } = req.body;
+    const expertProfileId = req.user.profileId;
 
     // Parse checklist if it's a string
     let parsedChecklist = checklist;
@@ -40,8 +41,8 @@ export const createWorkLog = async (req, res) => {
       });
     }
 
-    // Verify expert owns this contract
-    if (contract.expert_id !== req.user.id) {
+    // Verify expert owns this contract using expert_profile_id
+    if (contract.expert_profile_id !== expertProfileId) {
       return res.status(403).json({
         success: false,
         message: "You can only submit work logs for your own contracts",
@@ -72,7 +73,7 @@ export const createWorkLog = async (req, res) => {
     }
 
     const logDate = req.body.log_date || new Date().toISOString().split('T')[0];
-    
+
     // Determine sprint number (backend-owned) for sprint contracts
     let sprintNumberToSave = null;
     if (contract.engagement_model === "sprint" && type === "sprint_submission") {
@@ -90,9 +91,9 @@ export const createWorkLog = async (req, res) => {
     }
 
     const submissionError = await WorkLog.validateSubmission(
-      contract_id, 
-      type, 
-      sprintNumberToSave, 
+      contract_id,
+      type,
+      sprintNumberToSave,
       logDate
     );
     if (submissionError) {
@@ -174,7 +175,7 @@ export const createWorkLog = async (req, res) => {
 export const getWorkLogsByContract = async (req, res) => {
   try {
     const { contractId } = req.params;
-    const userId = req.user.id;
+    const profileId = req.user.profileId;
 
     // Get contract to verify access
     const contract = await Contract.getById(contractId);
@@ -185,10 +186,10 @@ export const getWorkLogsByContract = async (req, res) => {
       });
     }
 
-    // Check access: expert, buyer, or admin
+    // Check access: expert, buyer, or admin using profile IDs
     if (
-      contract.expert_id !== userId &&
-      contract.buyer_id !== userId &&
+      contract.expert_profile_id !== profileId &&
+      contract.buyer_profile_id !== profileId &&
       req.user.role !== "admin"
     ) {
       return res.status(403).json({
@@ -217,9 +218,9 @@ export const getWorkLogsByContract = async (req, res) => {
 // Get all work logs for current expert
 export const getMyWorkLogs = async (req, res) => {
   try {
-    const expertId = req.user.id;
+    const expertProfileId = req.user.profileId;
 
-    const workLogs = await WorkLog.getByExpertId(expertId);
+    const workLogs = await WorkLog.getByExpertProfileId(expertProfileId);
 
     res.status(200).json({
       success: true,
@@ -239,7 +240,7 @@ export const getMyWorkLogs = async (req, res) => {
 export const getWorkLogById = async (req, res) => {
   try {
     const { workLogId } = req.params;
-    const userId = req.user.id;
+    const profileId = req.user.profileId;
 
     const workLog = await WorkLog.getById(workLogId);
     if (!workLog) {
@@ -258,10 +259,10 @@ export const getWorkLogById = async (req, res) => {
       });
     }
 
-    // Check access
+    // Check access using profile IDs
     if (
-      contract.expert_id !== userId &&
-      contract.buyer_id !== userId &&
+      contract.expert_profile_id !== profileId &&
+      contract.buyer_profile_id !== profileId &&
       req.user.role !== "admin"
     ) {
       return res.status(403).json({
@@ -289,7 +290,7 @@ export const updateWorkLogStatus = async (req, res) => {
   try {
     const { workLogId } = req.params;
     const { status, buyer_comment } = req.body;
-    const userId = req.user.id;
+    const profileId = req.user.profileId;
 
     const workLog = await WorkLog.getById(workLogId);
     if (!workLog) {
@@ -307,9 +308,9 @@ export const updateWorkLogStatus = async (req, res) => {
       });
     }
 
-    // Only buyer (or admin) can approve / reject
+    // Only buyer (or admin) can approve / reject using buyer_profile_id
     if (
-      contract.buyer_id !== userId &&
+      contract.buyer_profile_id !== profileId &&
       req.user.role !== "admin"
     ) {
       return res.status(403).json({
@@ -348,7 +349,7 @@ export const updateWorkLogStatus = async (req, res) => {
 export const updateWorkLogContent = async (req, res) => {
   try {
     const { workLogId } = req.params;
-    const userId = req.user.id;
+    const profileId = req.user.profileId;
     const { description, checklist, problems_faced, evidence } = req.body;
 
     const workLog = await WorkLog.getById(workLogId);
@@ -367,9 +368,9 @@ export const updateWorkLogContent = async (req, res) => {
       });
     }
 
-    // Only expert who owns the contract (or admin)
+    // Only expert who owns the contract (or admin) using expert_profile_id
     if (
-      contract.expert_id !== userId &&
+      contract.expert_profile_id !== profileId &&
       req.user.role !== 'admin'
     ) {
       return res.status(403).json({
@@ -411,7 +412,7 @@ export const updateWorkLogContent = async (req, res) => {
 export const finishSprint = async (req, res) => {
   try {
     const { id } = req.params;
-    const userId = req.user.id;
+    const profileId = req.user.profileId;
 
     const contract = await Contract.getById(id);
     if (!contract) {
@@ -426,9 +427,9 @@ export const finishSprint = async (req, res) => {
       });
     }
 
-    // Only buyer (or admin) can finish sprint
+    // Only buyer (or admin) can finish sprint using buyer_profile_id
     if (
-      contract.buyer_id !== userId &&
+      contract.buyer_profile_id !== profileId &&
       req.user.role !== "admin"
     ) {
       return res.status(403).json({

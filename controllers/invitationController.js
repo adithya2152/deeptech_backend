@@ -2,21 +2,21 @@ import { Invitation } from '../models/invitationModel.js';
 
 export const invitationController = {
   async sendInvitation(req, res) {
-    const { project_id, expert_id, message } = req.body;
-    const buyer_id = req.user.id;
+    const { project_id, expert_profile_id, message } = req.body;
+    const buyerProfileId = req.user.profileId;
 
     try {
-      const isOwner = await Invitation.verifyProjectOwnership(project_id, buyer_id);
+      const isOwner = await Invitation.verifyProjectOwnership(project_id, buyerProfileId);
       if (!isOwner) {
         return res.status(403).json({ success: false, message: 'Unauthorized: Project does not belong to you.' });
       }
 
-      const existing = await Invitation.findPending(project_id, expert_id);
+      const existing = await Invitation.findPending(project_id, expert_profile_id);
       if (existing) {
         return res.status(400).json({ success: false, message: 'Invitation already pending.' });
       }
 
-      const invitation = await Invitation.create(project_id, expert_id, message);
+      const invitation = await Invitation.create(project_id, expert_profile_id, message);
       res.json({ success: true, data: invitation });
     } catch (err) {
       console.error('Error sending invitation:', err);
@@ -25,9 +25,9 @@ export const invitationController = {
   },
 
   async getMyInvitations(req, res) {
-    const expert_id = req.user.id;
+    const expertProfileId = req.user.profileId;
     try {
-      const invitations = await Invitation.getByExpertId(expert_id);
+      const invitations = await Invitation.getByExpertProfileId(expertProfileId);
       res.json({ success: true, data: invitations });
     } catch (err) {
       console.error('Error fetching invitations:', err);
@@ -38,7 +38,7 @@ export const invitationController = {
   async respondToInvitation(req, res) {
     const { id } = req.params;
     const { status } = req.body;
-    const expert_id = req.user.id;
+    const expertProfileId = req.user.profileId;
 
     if (!['accepted', 'declined'].includes(status)) {
       return res.status(400).json({ success: false, message: 'Invalid status' });
@@ -47,16 +47,16 @@ export const invitationController = {
     try {
       if (status === 'accepted') {
         // Perform transaction: Update Invite -> Update Project -> Create Contract
-        const result = await Invitation.acceptInvitationTransaction(id, expert_id);
-        res.json({ 
-          success: true, 
-          data: result.invitation, 
+        const result = await Invitation.acceptInvitationTransaction(id, expertProfileId);
+        res.json({
+          success: true,
+          data: result.invitation,
           contractId: result.contractId,
-          message: 'Invitation accepted and contract created.' 
+          message: 'Invitation accepted and contract created.'
         });
       } else {
         // Simple decline
-        const invitation = await Invitation.updateStatus(id, expert_id, status);
+        const invitation = await Invitation.updateStatus(id, expertProfileId, status);
         if (!invitation) {
           return res.status(404).json({ success: false, message: 'Invitation not found or unauthorized' });
         }

@@ -64,20 +64,32 @@ export const getExpertById = async (req, res) => {
   try {
     const { id } = req.params;
 
+    // Validate id is a valid UUID
+    if (!id || id === 'undefined' || id === 'null') {
+      return res.status(400).json({ message: 'Valid expert ID is required' });
+    }
+
     const expert = await expertModel.getExpertById(id);
     if (!expert) {
       return res.status(404).json({ message: 'Expert not found' });
     }
 
-    const { rows: documents } = await pool.query(
-      `
-      SELECT id, document_type, sub_type, title, url, is_public, created_at
-      FROM expert_documents
-      WHERE expert_id = $1
-      ORDER BY created_at DESC
-      `,
-      [id]
-    );
+    // Get documents using expert_profile_id (with fallback)
+    const expertProfileId = expert.expert_profile_id || expert.profile_id || id;
+
+    let documents = [];
+    if (expertProfileId && expertProfileId !== 'undefined') {
+      const { rows } = await pool.query(
+        `
+        SELECT id, document_type, sub_type, title, url, is_public, created_at
+        FROM expert_documents
+        WHERE expert_profile_id = $1
+        ORDER BY created_at DESC
+        `,
+        [expertProfileId]
+      );
+      documents = rows;
+    }
 
     res.json({ success: true, data: { ...expert, documents } });
   } catch (err) {
@@ -92,12 +104,26 @@ export const getExpertById = async (req, res) => {
 export const updateExpertProfile = async (req, res) => {
   try {
     const expertId = req.params.id;
+    const userId = req.user.id;
+    const profileId = req.user.profileId;
 
-    if (req.user.id !== expertId || req.user.role !== 'expert') {
+    // Check if user owns this expert profile
+    if (req.user.role !== 'expert') {
       return res.status(403).json({ message: 'Unauthorized' });
     }
 
-    /* profiles table */
+    // Allow update if expertId matches user's ID or profile ID
+    const expert = await expertModel.getExpertById(expertId);
+    if (!expert) {
+      return res.status(404).json({ message: 'Expert not found' });
+    }
+
+    // Verify ownership
+    if (expert.user_id !== userId && expert.expert_profile_id !== profileId) {
+      return res.status(403).json({ message: 'Unauthorized' });
+    }
+
+    /* user_accounts table */
     const profileFields = ['avatar_url', 'banner_url', 'country', 'timezone'];
     const updates = [];
     const values = [];
@@ -111,15 +137,15 @@ export const updateExpertProfile = async (req, res) => {
     }
 
     if (updates.length) {
-      values.push(expertId);
+      values.push(userId);
       await pool.query(
-        `UPDATE profiles SET ${updates.join(', ')}, updated_at = NOW() WHERE id = $${i}`,
+        `UPDATE user_accounts SET ${updates.join(', ')}, updated_at = NOW() WHERE id = $${i}`,
         values
       );
     }
 
-    /* experts table */
-    const updatedExpert = await expertModel.updateExpertById(expertId, req.body);
+    /* experts table - use expert_profile_id */
+    const updatedExpert = await expertModel.updateExpertById(expert.expert_profile_id, req.body);
 
     res.json({
       success: true,
@@ -138,14 +164,15 @@ export const updateExpertProfile = async (req, res) => {
 export const getResumeSignedUrl = async (req, res) => {
   try {
     const userId = req.user.id;
+    const profileId = req.user.profileId;
 
     const { rows } = await pool.query(
       `
       SELECT url FROM expert_documents
-      WHERE expert_id = $1 AND document_type = 'resume'
+      WHERE expert_profile_id = $1 AND document_type = 'resume'
       ORDER BY created_at DESC LIMIT 1
       `,
-      [userId]
+      [profileId]
     );
 
     if (!rows.length) {
@@ -175,6 +202,7 @@ export const uploadExpertDocument = async (req, res) => {
     const { type, sub_type, title, url, is_public = true } = req.body;
     const file = req.file;
     const userId = req.user.id;
+    const profileId = req.user.profileId;
 
     const allowed = ['resume', 'work', 'publication', 'credential', 'other'];
     if (!allowed.includes(type)) {
@@ -201,14 +229,15 @@ export const uploadExpertDocument = async (req, res) => {
           : supabase.storage.from(bucket).getPublicUrl(filePath).data.publicUrl;
     }
 
+    // Use expert_profile_id in the insert
     const { rows } = await pool.query(
       `
       INSERT INTO expert_documents
-      (expert_id, document_type, sub_type, title, url, is_public)
-      VALUES ($1,$2,$3,$4,$5,$6)
+      (expert_id, expert_profile_id, document_type, sub_type, title, url, is_public)
+      VALUES ($1, $2, $3, $4, $5, $6, $7)
       RETURNING *
       `,
-      [userId, type, sub_type, title, finalUrl, is_public]
+      [userId, profileId, type, sub_type, title, finalUrl, is_public]
     );
 
     res.json({ success: true, data: rows[0] });
@@ -224,11 +253,11 @@ export const uploadExpertDocument = async (req, res) => {
 export const deleteExpertDocument = async (req, res) => {
   try {
     const { documentId } = req.params;
-    const userId = req.user.id;
+    const profileId = req.user.profileId;
 
     const { rowCount } = await pool.query(
-      `DELETE FROM expert_documents WHERE id = $1 AND expert_id = $2`,
-      [documentId, userId]
+      `DELETE FROM expert_documents WHERE id = $1 AND expert_profile_id = $2`,
+      [documentId, profileId]
     );
 
     if (!rowCount) {
@@ -249,12 +278,16 @@ export const getDashboardStats = async (req, res) => {
   try {
     const expertId = req.params.id;
 
+    // Try to find the expert to get their expert_profile_id
+    const expert = await expertModel.getExpertById(expertId);
+    const expertProfileId = expert?.expert_profile_id || expertId;
+
     // Get total earnings from released_total
     const { rows: totalRows } = await pool.query(`
       SELECT COALESCE(SUM(released_total), 0) AS total
       FROM contracts
-      WHERE expert_id = $1
-    `, [expertId]);
+      WHERE expert_profile_id = $1
+    `, [expertProfileId]);
 
     // Get monthly earnings for chart (last 6 months)
     const { rows: monthlyRows } = await pool.query(`
@@ -262,11 +295,11 @@ export const getDashboardStats = async (req, res) => {
         TO_CHAR(date_trunc('month', created_at), 'Mon') AS name,
         COALESCE(SUM(released_total), 0) AS value
       FROM contracts
-      WHERE expert_id = $1
+      WHERE expert_profile_id = $1
         AND created_at >= NOW() - INTERVAL '6 months'
       GROUP BY date_trunc('month', created_at)
       ORDER BY date_trunc('month', created_at)
-    `, [expertId]);
+    `, [expertProfileId]);
 
     // Calculate trend: compare this month vs last month earnings
     const { rows: trendRows } = await pool.query(`
@@ -275,8 +308,8 @@ export const getDashboardStats = async (req, res) => {
         COALESCE(SUM(CASE WHEN created_at >= date_trunc('month', NOW() - INTERVAL '1 month') 
                           AND created_at < date_trunc('month', NOW()) THEN released_total ELSE 0 END), 0) AS last_month
       FROM contracts
-      WHERE expert_id = $1
-    `, [expertId]);
+      WHERE expert_profile_id = $1
+    `, [expertProfileId]);
 
     const thisMonth = parseFloat(trendRows[0].this_month) || 0;
     const lastMonth = parseFloat(trendRows[0].last_month) || 0;

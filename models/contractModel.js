@@ -1,24 +1,24 @@
 import pool from "../config/db.js";
 
 const Contract = {
-  findActiveOrPendingForPair: async (project_id, expert_id) => {
+  findActiveOrPendingForPair: async (project_id, expert_profile_id) => {
     const query = `
       SELECT *
       FROM contracts
       WHERE project_id = $1
-        AND expert_id = $2
+        AND expert_profile_id = $2
         AND status IN ('pending', 'active', 'paused')
       LIMIT 1;
     `;
-    const { rows } = await pool.query(query, [project_id, expert_id]);
+    const { rows } = await pool.query(query, [project_id, expert_profile_id]);
     return rows[0];
   },
 
   createContract: async (data) => {
     const {
       project_id,
-      buyer_id,
-      expert_id,
+      buyer_profile_id,
+      expert_profile_id,
       engagement_model,
       payment_terms,
       start_date,
@@ -26,7 +26,7 @@ const Contract = {
 
     const existing = await Contract.findActiveOrPendingForPair(
       project_id,
-      expert_id
+      expert_profile_id
     );
     if (existing) {
       const error = new Error(
@@ -53,8 +53,8 @@ const Contract = {
     const query = `
       INSERT INTO contracts (
         project_id, 
-        buyer_id, 
-        expert_id, 
+        buyer_profile_id, 
+        expert_profile_id, 
         engagement_model,
         payment_terms,
         start_date,
@@ -68,8 +68,8 @@ const Contract = {
 
     const values = [
       project_id,
-      buyer_id,
-      expert_id,
+      buyer_profile_id,
+      expert_profile_id,
       engagement_model,
       JSON.stringify(payment_terms),
       start_date,
@@ -117,15 +117,15 @@ const Contract = {
     return rows[0];
   },
 
-  getByExpertId: async (expert_id) => {
-    const query = `SELECT * FROM contracts WHERE expert_id = $1 ORDER BY created_at DESC`;
-    const { rows } = await pool.query(query, [expert_id]);
+  getByExpertProfileId: async (expert_profile_id) => {
+    const query = `SELECT * FROM contracts WHERE expert_profile_id = $1 ORDER BY created_at DESC`;
+    const { rows } = await pool.query(query, [expert_profile_id]);
     return rows;
   },
 
-  getByBuyerId: async (buyer_id) => {
-    const query = `SELECT * FROM contracts WHERE buyer_id = $1 ORDER BY created_at DESC`;
-    const { rows } = await pool.query(query, [buyer_id]);
+  getByBuyerProfileId: async (buyer_profile_id) => {
+    const query = `SELECT * FROM contracts WHERE buyer_profile_id = $1 ORDER BY created_at DESC`;
+    const { rows } = await pool.query(query, [buyer_profile_id]);
     return rows;
   },
 
@@ -135,13 +135,13 @@ const Contract = {
     return rows;
   },
 
-  getPendingContractForExpertAndProject: async (expert_id, project_id) => {
+  getPendingContractForExpertAndProject: async (expert_profile_id, project_id) => {
     const query = `
       SELECT * FROM contracts 
-      WHERE expert_id = $1 AND project_id = $2 AND status = 'pending'
+      WHERE expert_profile_id = $1 AND project_id = $2 AND status = 'pending'
       LIMIT 1
     `;
-    const { rows } = await pool.query(query, [expert_id, project_id]);
+    const { rows } = await pool.query(query, [expert_profile_id, project_id]);
     return rows[0];
   },
 
@@ -153,40 +153,48 @@ const Contract = {
         p.description as project_description,
         p.domain as project_domain,
         p.trl_level as project_trl,
+        ue.id as expert_user_id,
         ue.first_name as expert_first_name, 
         ue.last_name as expert_last_name,
         ue.email as expert_email,
+        ub.id as buyer_user_id,
         ub.first_name as buyer_first_name,
         ub.last_name as buyer_last_name
       FROM contracts c
       JOIN projects p ON c.project_id = p.id
-      JOIN profiles ue ON c.expert_id = ue.id
-      JOIN profiles ub ON c.buyer_id = ub.id
+      JOIN profiles pe ON c.expert_profile_id = pe.id
+      JOIN user_accounts ue ON pe.user_id = ue.id
+      JOIN profiles pb ON c.buyer_profile_id = pb.id
+      JOIN user_accounts ub ON pb.user_id = ub.id
       WHERE c.id = $1;
     `;
     const { rows } = await pool.query(query, [id]);
     return rows[0];
   },
 
-  getContractsByUser: async (user_id, role) => {
-    const column = role === "expert" ? "expert_id" : "buyer_id";
+  getContractsByUser: async (profile_id, role) => {
+    const column = role === "expert" ? "expert_profile_id" : "buyer_profile_id";
 
     const query = `
       SELECT 
         c.*, 
         p.title as project_title,
+        ue.id as expert_user_id,
         ue.first_name as expert_first_name, 
         ue.last_name as expert_last_name,
+        ub.id as buyer_user_id,
         ub.first_name as buyer_first_name,
         ub.last_name as buyer_last_name
       FROM contracts c
       JOIN projects p ON c.project_id = p.id
-      JOIN profiles ue ON c.expert_id = ue.id
-      JOIN profiles ub ON c.buyer_id = ub.id
+      JOIN profiles pe ON c.expert_profile_id = pe.id
+      JOIN user_accounts ue ON pe.user_id = ue.id
+      JOIN profiles pb ON c.buyer_profile_id = pb.id
+      JOIN user_accounts ub ON pb.user_id = ub.id
       WHERE c.${column} = $1 
       ORDER BY c.created_at DESC;
     `;
-    const { rows } = await pool.query(query, [user_id]);
+    const { rows } = await pool.query(query, [profile_id]);
     return rows;
   },
 
@@ -253,37 +261,37 @@ const Contract = {
     return rows.length > 0;
   },
 
-  createFeedback: async (contract_id, giver_id, receiver_id, rating, comment, is_positive) => {
+  createFeedback: async (contract_id, giver_id, receiver_id, rating, comment, is_positive, receiver_role = 'expert') => {
     const query = `
-      INSERT INTO feedback (contract_id, giver_id, receiver_id, rating, comment, is_positive)
-      VALUES ($1, $2, $3, $4, $5, $6)
+      INSERT INTO feedback (contract_id, giver_id, receiver_id, rating, comment, is_positive, receiver_role)
+      VALUES ($1, $2, $3, $4, $5, $6, $7)
       RETURNING *;
     `;
-    const { rows } = await pool.query(query, [contract_id, giver_id, receiver_id, rating, comment, is_positive]);
+    const { rows } = await pool.query(query, [contract_id, giver_id, receiver_id, rating, comment, is_positive, receiver_role]);
     return rows[0];
   },
 
   getFeedbackByContractId: async (contract_id) => {
     const query = `
-      SELECT f.*, p.first_name, p.last_name, p.avatar_url
+      SELECT f.*, u.first_name, u.last_name, u.avatar_url
       FROM feedback f
-      JOIN profiles p ON f.giver_id = p.id
+      JOIN user_accounts u ON f.giver_id = u.id
       WHERE contract_id = $1
     `;
     const { rows } = await pool.query(query, [contract_id]);
     return rows;
   },
 
-  updateExpertRating: async (expert_id) => {
+  updateExpertRating: async (expert_profile_id) => {
     const stats = await pool.query(
       `SELECT AVG(rating) as new_rating, COUNT(*) as count 
-       FROM feedback WHERE receiver_id = $1`,
-      [expert_id]
+       FROM feedback WHERE receiver_id = $1 AND receiver_role = 'expert'`,
+      [expert_profile_id]
     );
-    
+
     await pool.query(
-      `UPDATE experts SET rating = $1, review_count = $2 WHERE id = $3`,
-      [parseFloat(stats.rows[0].new_rating || 0).toFixed(1), stats.rows[0].count, expert_id]
+      `UPDATE experts SET rating = $1, review_count = $2 WHERE expert_profile_id = $3`,
+      [parseFloat(stats.rows[0].new_rating || 0).toFixed(1), stats.rows[0].count, expert_profile_id]
     );
   }
 };

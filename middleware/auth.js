@@ -7,6 +7,38 @@ if (!jwtSecret) {
   throw new Error("JWT_SECRET is not defined in environment variables");
 }
 
+// Helper to get active profile for a user
+// Returns the active profile (is_active = true) for the given user
+const getActiveProfile = async (userId) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT id, profile_type, is_active 
+       FROM profiles 
+       WHERE user_id = $1 AND is_active = true
+       LIMIT 1`,
+      [userId]
+    );
+    return rows[0] || null;
+  } catch (err) {
+    console.error('[getActiveProfile] Error:', err);
+    return null;
+  }
+};
+
+// Helper to determine the active role from profiles.is_active
+const getActiveRole = async (userId) => {
+  try {
+    const profile = await getActiveProfile(userId);
+    if (profile) {
+      return profile.profile_type; // 'expert' or 'buyer'
+    }
+    return 'buyer'; // Default fallback
+  } catch (err) {
+    console.error('[getActiveRole] Error:', err);
+    return 'buyer';
+  }
+};
+
 const auth = async (req, res, next) => {
   const authHeader = req.headers["authorization"];
   const token = authHeader && authHeader.split(" ")[1];
@@ -29,28 +61,42 @@ const auth = async (req, res, next) => {
         code: "INVALID_TOKEN_TYPE",
       });
     }
-    
-    const query = 'SELECT is_banned, ban_reason, role FROM profiles WHERE id = $1';
-    const { rows } = await pool.query(query, [decoded.id]);
 
-    if (rows.length === 0) {
+    // Query user_accounts for ban status + account role (not profiles)
+    const { rows: userRows } = await pool.query(
+      'SELECT is_banned, ban_reason, role FROM user_accounts WHERE id = $1',
+      [decoded.id]
+    );
+
+    if (userRows.length === 0) {
       return res.status(401).json({
         success: false,
         message: "User account not found.",
       });
     }
 
-    if (rows[0].is_banned) {
+    if (userRows[0].is_banned) {
       return res.status(403).json({
         success: false,
         message: "Your account has been suspended.",
-        reason: rows[0].ban_reason,
+        reason: userRows[0].ban_reason,
         code: "USER_BANNED"
       });
     }
 
+    const accountRole = userRows[0]?.role;
+
+    // Get active profile for this user
+    const activeProfile = await getActiveProfile(decoded.id);
+    const activeRole = activeProfile?.profile_type || accountRole || 'buyer';
+
     // Prevent using stale tokens after role switching
-    if (decoded?.role && rows[0].role && decoded.role !== rows[0].role) {
+    // Compare JWT role against the ACTIVE role from profiles.is_active
+    // Admins may not have an active 'admin' profile row; allow admin JWTs as long as user_accounts.role is admin.
+    const isAdminAccount = accountRole === 'admin';
+    const isAdminToken = decoded?.role === 'admin';
+
+    if (decoded?.role && activeRole && decoded.role !== activeRole && !(isAdminAccount && isAdminToken)) {
       return res.status(401).json({
         success: false,
         message: "Role changed. Please refresh your session.",
@@ -58,7 +104,13 @@ const auth = async (req, res, next) => {
       });
     }
 
-    req.user = decoded;
+    // Attach both user ID and profile info to request
+    req.user = {
+      ...decoded,
+      accountRole,
+      profileId: activeProfile?.id || null,
+      profileType: activeRole,
+    };
     next();
   } catch (err) {
     console.error("Auth Error: ", err.message);
@@ -88,6 +140,7 @@ const optionalAuth = (req, res, next) => {
       const decoded = jwt.verify(token, jwtSecret);
       req.user = {
         id: decoded.id || decoded.userId,
+        profileId: decoded.profileId || null,
         ...decoded,
       };
     } catch (err) {
@@ -98,4 +151,4 @@ const optionalAuth = (req, res, next) => {
   next();
 };
 
-export { auth, optionalAuth };
+export { auth, optionalAuth, getActiveProfile, getActiveRole };

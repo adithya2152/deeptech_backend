@@ -4,12 +4,14 @@ const Expert = {
   searchExperts: async ({ domain, queryText }) => {
     let sql = `
       SELECT 
-        p.id,
-        p.first_name,
-        p.last_name,
-        p.first_name || ' ' || p.last_name AS name,
-        p.avatar_url,
-        p.banner_url,
+        e.expert_profile_id,
+        p.id as profile_id,
+        u.id as user_id,
+        u.first_name,
+        u.last_name,
+        u.first_name || ' ' || u.last_name AS name,
+        u.avatar_url,
+        u.banner_url,
 
         e.experience_summary,
         e.domains,
@@ -26,9 +28,10 @@ const Expert = {
         e.skills,
         e.expert_status,
         e.is_profile_complete
-      FROM profiles p
-      JOIN experts e ON p.id = e.id
-      WHERE p.role = 'expert'
+      FROM experts e
+      JOIN profiles p ON e.expert_profile_id = p.id
+      JOIN user_accounts u ON p.user_id = u.id
+      WHERE p.profile_type = 'expert'
     `;
 
     const params = [];
@@ -42,8 +45,8 @@ const Expert = {
 
     if (queryText) {
       sql += ` AND (
-        p.first_name ILIKE $${i}
-        OR p.last_name ILIKE $${i}
+        u.first_name ILIKE $${i}
+        OR u.last_name ILIKE $${i}
         OR e.experience_summary ILIKE $${i}
       )`;
       params.push(`%${queryText}%`);
@@ -55,19 +58,22 @@ const Expert = {
   },
 
   getExpertById: async (id) => {
-    const { rows } = await pool.query(
+    // First try to find by expert_profile_id
+    let { rows } = await pool.query(
       `
       SELECT
-        e.id,
-        p.first_name,
-        p.last_name,
-        p.email,
-        p.avatar_url,
-        p.banner_url,
-        p.timezone,
-        p.country,
-        p.created_at,
-        p.updated_at,
+        e.expert_profile_id,
+        p.id as profile_id,
+        u.id as user_id,
+        u.first_name,
+        u.last_name,
+        u.email,
+        u.avatar_url,
+        u.banner_url,
+        u.timezone,
+        u.country,
+        u.created_at,
+        u.updated_at,
         e.experience_summary,
         e.domains,
         e.availability_status,
@@ -85,11 +91,55 @@ const Expert = {
         e.review_count,
         e.skills
       FROM experts e
-      JOIN profiles p ON e.id = p.id
-      WHERE e.id = $1
+      JOIN profiles p ON e.expert_profile_id = p.id
+      JOIN user_accounts u ON p.user_id = u.id
+      WHERE e.expert_profile_id = $1
       `,
       [id]
     );
+
+    // If not found, try by user_id (legacy support)
+    if (rows.length === 0) {
+      const result = await pool.query(
+        `
+        SELECT
+          e.expert_profile_id,
+          p.id as profile_id,
+          u.id as user_id,
+          u.first_name,
+          u.last_name,
+          u.email,
+          u.avatar_url,
+          u.banner_url,
+          u.timezone,
+          u.country,
+          u.created_at,
+          u.updated_at,
+          e.experience_summary,
+          e.domains,
+          e.availability_status,
+          e.is_profile_complete,
+          e.expert_status,
+          e.avg_daily_rate,
+          e.avg_fixed_rate,
+          e.avg_sprint_rate,
+          e.preferred_engagement_mode,
+          e.languages,
+          e.years_experience,
+          e.portfolio_url,
+          e.profile_video_url,
+          e.rating,
+          e.review_count,
+          e.skills
+        FROM experts e
+        JOIN profiles p ON e.expert_profile_id = p.id
+        JOIN user_accounts u ON p.user_id = u.id
+        WHERE u.id = $1
+        `,
+        [id]
+      );
+      rows = result.rows;
+    }
 
     return rows[0];
   },
@@ -125,20 +175,54 @@ const Expert = {
 
     if (!fields.length) return null;
 
+    // Try to update by expert_profile_id first
     values.push(id);
 
-    const { rows } = await pool.query(
+    let { rows } = await pool.query(
       `
       UPDATE experts
       SET ${fields.join(', ')},
           updated_at = NOW(),
           profile_updated_at = NOW()
-      WHERE id = $${i}
+      WHERE expert_profile_id = $${i}
       RETURNING *
       `,
       values
     );
 
+    // If no rows updated, try by user_id (legacy)
+    if (rows.length === 0) {
+      values[values.length - 1] = id;
+      const result = await pool.query(
+        `
+        UPDATE experts e
+        SET ${fields.join(', ')},
+            updated_at = NOW(),
+            profile_updated_at = NOW()
+        FROM profiles p
+        WHERE e.expert_profile_id = p.id
+          AND p.user_id = $${i}
+        RETURNING e.*
+        `,
+        values
+      );
+      rows = result.rows;
+    }
+
+    return rows[0];
+  },
+
+  // Get expert by user ID
+  getExpertByUserId: async (userId) => {
+    const { rows } = await pool.query(
+      `
+      SELECT e.*, p.id as profile_id
+      FROM experts e
+      JOIN profiles p ON e.expert_profile_id = p.id
+      WHERE p.user_id = $1 AND p.profile_type = 'expert'
+      `,
+      [userId]
+    );
     return rows[0];
   }
 };
