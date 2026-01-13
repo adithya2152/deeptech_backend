@@ -3,6 +3,18 @@ import WorkLog from "../models/workLogModel.js";
 import Contract from "../models/contractModel.js";
 import { uploadMultipleFiles, BUCKETS } from "../utils/storage.js";
 
+function isValidHttpUrl(value) {
+  if (typeof value !== "string") return false;
+  try {
+    const u = new URL(value);
+    if (!(u.protocol === "http:" || u.protocol === "https:")) return false;
+    const host = u.hostname;
+    return host === "localhost" || host.includes(".");
+  } catch {
+    return false;
+  }
+}
+
 // Validation middleware
 export const validateWorkLog = [
   body("contract_id").isUUID().withMessage("Valid contract ID is required"),
@@ -103,8 +115,51 @@ export const createWorkLog = async (req, res) => {
       });
     }
 
-    // Handle file uploads
-    let evidence = {};
+    // Parse evidence from body (works for both JSON and multipart submissions)
+    let evidenceFromBody = {};
+    if (req.body.evidence) {
+      try {
+        evidenceFromBody = typeof req.body.evidence === "string"
+          ? JSON.parse(req.body.evidence)
+          : req.body.evidence;
+
+        if (typeof evidenceFromBody !== "object" || evidenceFromBody === null) {
+          evidenceFromBody = {};
+        }
+      } catch (e) {
+        console.warn("Invalid evidence JSON, using empty object:", req.body.evidence);
+        evidenceFromBody = {};
+      }
+    }
+
+    if (req.body.evidence_summary && typeof req.body.evidence_summary === "string") {
+      evidenceFromBody = { ...evidenceFromBody, summary: req.body.evidence_summary };
+    }
+
+    // Validate links (if provided)
+    if (Array.isArray(evidenceFromBody.links)) {
+      const normalizedLinks = [];
+      for (let i = 0; i < evidenceFromBody.links.length; i++) {
+        const link = evidenceFromBody.links[i];
+        const url = typeof link === "string" ? link : link?.url;
+        if (!isValidHttpUrl(url)) {
+          return res.status(400).json({
+            success: false,
+            message: `Invalid evidence link at position ${i + 1}`,
+            code: "INVALID_EVIDENCE_LINK",
+          });
+        }
+        normalizedLinks.push({
+          label: typeof link === "object" && link?.label ? String(link.label) : "Link",
+          url,
+        });
+      }
+
+      evidenceFromBody = { ...evidenceFromBody, links: normalizedLinks };
+    }
+
+    // Handle file uploads + merge with evidence body
+    let evidence = evidenceFromBody;
     if (req.files && req.files.length > 0) {
       const files = req.files.map((file) => ({
         name: file.originalname,
@@ -119,30 +174,16 @@ export const createWorkLog = async (req, res) => {
         folder
       );
 
-      evidence = {
-        attachments: uploadedFiles.map((f) => ({
-          name: f.path.split("/").pop(),
-          url: f.url,
-          path: f.path,
-        })),
-        summary: req.body.evidence_summary || "",
-      };
-    } else if (req.body.evidence) {
-      try {
-        evidence = typeof req.body.evidence === "string"
-          ? JSON.parse(req.body.evidence)
-          : req.body.evidence;
+      const uploadedAttachments = uploadedFiles.map((f) => ({
+        name: f.path.split("/").pop(),
+        url: f.url,
+        path: f.path,
+      }));
 
-        // Validate it's a valid object
-        if (typeof evidence !== 'object' || evidence === null) {
-          evidence = {};
-        }
-      } catch (e) {
-        console.warn('Invalid evidence JSON, using empty object:', req.body.evidence);
-        evidence = {};
-      }
-    } else {
-      evidence = {};
+      evidence = {
+        ...evidence,
+        attachments: uploadedAttachments,
+      };
     }
 
     const workLog = await WorkLog.create({
@@ -350,7 +391,7 @@ export const updateWorkLogContent = async (req, res) => {
   try {
     const { workLogId } = req.params;
     const profileId = req.user.profileId;
-    const { description, checklist, problems_faced, evidence } = req.body;
+    const { description, checklist, problems_faced } = req.body;
 
     const workLog = await WorkLog.getById(workLogId);
     if (!workLog) {
@@ -379,19 +420,121 @@ export const updateWorkLogContent = async (req, res) => {
       });
     }
 
-    // Only allow editing submitted logs
-    if (workLog.status !== 'submitted') {
+    // Only allow editing logs before buyer finalizes
+    if (!['submitted', 'pending'].includes(workLog.status)) {
       return res.status(400).json({
         success: false,
-        message: 'Only submitted logs can be edited',
+        message: 'Only submitted or pending logs can be edited',
       });
+    }
+
+    // Parse checklist if it's a string
+    let parsedChecklist = checklist;
+    if (typeof checklist === 'string') {
+      try {
+        parsedChecklist = JSON.parse(checklist);
+      } catch (e) {
+        parsedChecklist = null;
+      }
+    }
+
+    // Parse evidence from body (works for both JSON and multipart submissions)
+    let evidenceFromBody = {};
+    if (req.body.evidence) {
+      try {
+        evidenceFromBody =
+          typeof req.body.evidence === 'string'
+            ? JSON.parse(req.body.evidence)
+            : req.body.evidence;
+
+        if (typeof evidenceFromBody !== 'object' || evidenceFromBody === null) {
+          evidenceFromBody = {};
+        }
+      } catch (e) {
+        console.warn('Invalid evidence JSON, using empty object:', req.body.evidence);
+        evidenceFromBody = {};
+      }
+    }
+
+    if (req.body.evidence_summary && typeof req.body.evidence_summary === 'string') {
+      evidenceFromBody = { ...evidenceFromBody, summary: req.body.evidence_summary };
+    }
+
+    // Normalize + validate links (if provided)
+    if (Array.isArray(evidenceFromBody.links)) {
+      const normalizedLinks = [];
+      for (let i = 0; i < evidenceFromBody.links.length; i++) {
+        const link = evidenceFromBody.links[i];
+        const url = typeof link === 'string' ? link : link?.url;
+        if (!isValidHttpUrl(url)) {
+          return res.status(400).json({
+            success: false,
+            message: `Invalid evidence link at position ${i + 1}`,
+            code: 'INVALID_EVIDENCE_LINK',
+          });
+        }
+        normalizedLinks.push({
+          label: typeof link === 'object' && link?.label ? String(link.label) : 'Link',
+          url,
+        });
+      }
+      evidenceFromBody = { ...evidenceFromBody, links: normalizedLinks };
+    }
+
+    // Preserve existing evidence/attachments unless caller explicitly overrides
+    let existingEvidence = workLog.evidence;
+    if (typeof existingEvidence === 'string') {
+      try {
+        existingEvidence = JSON.parse(existingEvidence);
+      } catch {
+        existingEvidence = {};
+      }
+    }
+    if (typeof existingEvidence !== 'object' || existingEvidence === null) {
+      existingEvidence = {};
+    }
+
+    const existingAttachments = Array.isArray(existingEvidence.attachments)
+      ? existingEvidence.attachments
+      : [];
+
+    let mergedEvidence = {
+      ...existingEvidence,
+      ...evidenceFromBody,
+    };
+
+    // Upload new attachments (if any) and merge with existing
+    if (req.files && req.files.length > 0) {
+      const files = req.files.map((file) => ({
+        name: file.originalname,
+        buffer: file.buffer,
+        contentType: file.mimetype,
+      }));
+
+      const folder = `contract-${workLog.contract_id}/worklog-${workLogId}/edit-${Date.now()}`;
+      const uploadedFiles = await uploadMultipleFiles(
+        BUCKETS.WORK_LOGS,
+        files,
+        folder
+      );
+
+      const uploadedAttachments = uploadedFiles.map((f) => ({
+        name: f.path.split('/').pop(),
+        url: f.url,
+        path: f.path,
+      }));
+
+      mergedEvidence = {
+        ...mergedEvidence,
+        attachments: [...existingAttachments, ...uploadedAttachments],
+      };
     }
 
     const updated = await WorkLog.update(workLogId, {
       description,
-      checklist,
+      checklist: parsedChecklist,
       problems_faced,
-      evidence,
+      evidence: mergedEvidence,
     });
 
     return res.json({
@@ -447,6 +590,20 @@ export const finishSprint = async (req, res) => {
       typeof paymentTerms.current_sprint_number === "number"
         ? paymentTerms.current_sprint_number
         : 1;
+
+    const approvedCount = await WorkLog.countApprovedSprintSubmissions(
+      id,
+      currentSprint
+    );
+
+    if (approvedCount < 1) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "Cannot finish sprint without at least one approved work log in the current sprint",
+        code: "SPRINT_NO_APPROVED_LOGS",
+      });
+    }
 
     const updatedPaymentTerms = {
       ...paymentTerms,

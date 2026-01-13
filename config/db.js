@@ -6,14 +6,11 @@ dotenv.config();
 const { Pool } = pg;
 
 const pool = new Pool({
-  connectionString: process.env.SUPABASE_CONNECTION_STRING, 
+  connectionString: process.env.SUPABASE_CONNECTION_STRING,
   ssl: {
     rejectUnauthorized: false,
   },
   max: 10,
-  idleTimeoutMillis: 30000,
-  connectionTimeoutMillis: 10000,
-  keepAlive: true, 
 });
 
 pool.on("error", (err) => {

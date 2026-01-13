@@ -244,6 +244,19 @@ const Contract = {
     return rows[0];
   },
 
+  releaseEscrow: async (contract_id, amount) => {
+    const query = `
+      UPDATE contracts
+      SET 
+        escrow_balance = GREATEST(escrow_balance - $2, 0),
+        released_total = released_total + $2
+      WHERE id = $1
+      RETURNING *;
+    `;
+    const { rows } = await pool.query(query, [contract_id, amount]);
+    return rows[0];
+  },
+
   updateStatus: async (contract_id, status) => {
     const query = `
       UPDATE contracts
@@ -275,7 +288,8 @@ const Contract = {
     const query = `
       SELECT f.*, u.first_name, u.last_name, u.avatar_url
       FROM feedback f
-      JOIN user_accounts u ON f.giver_id = u.id
+      JOIN profiles p ON f.giver_id = p.id
+      JOIN user_accounts u ON p.user_id = u.id
       WHERE contract_id = $1
     `;
     const { rows } = await pool.query(query, [contract_id]);

@@ -131,6 +131,21 @@ const WorkLog = {
     return parseInt(rows[0].count);
   },
 
+  // NEW: Count approved sprint submissions for a sprint number
+  countApprovedSprintSubmissions: async (contract_id, sprint_number) => {
+    const query = `
+      SELECT COUNT(*) as count
+      FROM work_logs
+      WHERE contract_id = $1
+        AND sprint_number = $2
+        AND type = 'sprint_submission'
+        AND status = 'approved'
+    `;
+
+    const { rows } = await pool.query(query, [contract_id, sprint_number]);
+    return parseInt(rows[0].count);
+  },
+
   // NEW: Count milestone requests total
   countMilestoneRequests: async (contract_id) => {
     const query = `

@@ -9,12 +9,13 @@ import pool from "../config/db.js";
  */
 export const findOrCreateDirectChat = async (userId1, userId2, role1 = 'expert', role2 = 'expert') => {
   try {
-    // First try to find existing direct chat between these users with matching roles
+    // First try to find ANY existing direct chat between these two users (ignoring roles)
+    // This prevents duplicate chats when users interact as different roles
     const findSql = `
       SELECT c.id, c.type, c.created_at
       FROM chats c
-      JOIN chat_members cm1 ON c.id = cm1.chat_id AND cm1.user_id = $1 AND cm1.member_role = $3
-      JOIN chat_members cm2 ON c.id = cm2.chat_id AND cm2.user_id = $2 AND cm2.member_role = $4
+      JOIN chat_members cm1 ON c.id = cm1.chat_id AND cm1.user_id = $1
+      JOIN chat_members cm2 ON c.id = cm2.chat_id AND cm2.user_id = $2
       WHERE c.type = 'direct'
       LIMIT 1;
     `;
@@ -22,11 +23,21 @@ export const findOrCreateDirectChat = async (userId1, userId2, role1 = 'expert',
     const { rows: existingChat } = await pool.query(findSql, [
       userId1,
       userId2,
-      role1,
-      role2,
     ]);
 
     if (existingChat.length > 0) {
+      // Update the member roles if they've changed (optional, keeps roles current)
+      const updateRolesSql = `
+        UPDATE chat_members 
+        SET member_role = CASE 
+          WHEN user_id = $1 THEN $3
+          WHEN user_id = $2 THEN $4
+          ELSE member_role
+        END
+        WHERE chat_id = $5 AND user_id IN ($1, $2);
+      `;
+      await pool.query(updateRolesSql, [userId1, userId2, role1, role2, existingChat[0].id]);
+
       return existingChat[0];
     }
 

@@ -293,14 +293,26 @@ const ProfileModel = {
   },
 
   getUserReviews: async (userId, role = null) => {
-    const params = [userId];
-    let roleFilter = '';
-
-    if (role === 'buyer' || role === 'expert') {
-      roleFilter = ' AND f.receiver_role = $2';
-      params.push(role);
+    // 1. Resolve Profile IDs for the user
+    let profileIds = [];
+    if (role) {
+      const { rows } = await pool.query(
+        `SELECT id FROM profiles WHERE user_id = $1 AND profile_type = $2`,
+        [userId, role]
+      );
+      if (rows.length > 0) profileIds.push(rows[0].id);
+    } else {
+      const { rows } = await pool.query(
+        `SELECT id FROM profiles WHERE user_id = $1`,
+        [userId]
+      );
+      profileIds = rows.map(r => r.id);
     }
 
+    if (profileIds.length === 0) return [];
+
+    // 2. Query Feedback using Profile IDs
+    // Also fix giver_id join (Profile -> User)
     const query = `
       SELECT
         f.id,
@@ -312,14 +324,16 @@ const ProfileModel = {
         u.avatar_url AS giver_avatar,
         pr.title AS project_title
       FROM feedback f
-      LEFT JOIN user_accounts u ON u.id = f.giver_id
+      LEFT JOIN profiles p_giver ON p_giver.id = f.giver_id
+      LEFT JOIN user_accounts u ON u.id = p_giver.user_id
       LEFT JOIN contracts c ON c.id = f.contract_id
       LEFT JOIN projects pr ON pr.id = c.project_id
-      WHERE f.receiver_id = $1${roleFilter}
+      WHERE f.receiver_id = ANY($1)
       ORDER BY f.created_at DESC
     `;
 
-    const { rows } = await pool.query(query, params);
+    const { rows } = await pool.query(query, [profileIds]);
+
     return rows.map(r => ({
       id: r.id,
       rating: r.rating,

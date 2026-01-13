@@ -9,11 +9,11 @@ export const Invitation = {
     return result.rows[0];
   },
 
-  async create(projectId, expertProfileId, message) {
+  async create(projectId, expertProfileId, message, engagementModel, paymentTerms) {
     const result = await pool.query(
-      `INSERT INTO project_invitations (project_id, expert_profile_id, message)
-       VALUES ($1, $2, $3) RETURNING *`,
-      [projectId, expertProfileId, message]
+      `INSERT INTO project_invitations (project_id, expert_profile_id, message, engagement_model, payment_terms)
+       VALUES ($1, $2, $3, $4, $5) RETURNING *`,
+      [projectId, expertProfileId, message, engagementModel || 'daily', JSON.stringify(paymentTerms || {})]
     );
     return result.rows[0];
   },
@@ -91,22 +91,42 @@ export const Invitation = {
         [invitation.project_id]
       );
 
-      // 4. Create Contract (Draft/Pending)
-      // Using 'daily' as a default engagement model since actual terms are negotiated in contract phase
+      // 4. Create Contract using invitation's engagement model and payment terms
+      const engagementModel = invitation.engagement_model || 'daily';
+      const invPaymentTerms = typeof invitation.payment_terms === 'string'
+        ? JSON.parse(invitation.payment_terms)
+        : (invitation.payment_terms || {});
+
+      // Calculate total amount based on model
+      let totalAmount = 0;
+      if (engagementModel === 'daily') {
+        totalAmount = (invPaymentTerms.daily_rate || 0) * (invPaymentTerms.total_days || 0);
+      } else if (engagementModel === 'sprint') {
+        totalAmount = (invPaymentTerms.sprint_rate || 0) * (invPaymentTerms.total_sprints || 0);
+      } else if (engagementModel === 'fixed') {
+        totalAmount = invPaymentTerms.total_amount || 0;
+      }
+
+      // Fallback to project budget if no amount calculated
+      if (totalAmount === 0) {
+        totalAmount = project.budget_max || project.budget_min || 0;
+      }
+
       const contractRes = await client.query(
         `INSERT INTO contracts (
            project_id, buyer_profile_id, expert_profile_id, 
-           engagement_model, payment_terms, status, start_date
-         ) VALUES ($1, $2, $3, $4, $5, $6, $7) 
+           engagement_model, payment_terms, status, start_date, total_amount
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) 
          RETURNING id`,
         [
           project.id,
           project.buyer_profile_id,
           expertProfileId,
-          'daily', // Default initial model
-          JSON.stringify({ rate: 0, currency: 'USD', note: 'Draft terms from invitation' }),
+          engagementModel,
+          JSON.stringify({ currency: 'USD', ...invPaymentTerms }),
           'pending',
-          new Date()
+          new Date(),
+          totalAmount
         ]
       );
 

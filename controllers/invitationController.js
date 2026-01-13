@@ -2,7 +2,7 @@ import { Invitation } from '../models/invitationModel.js';
 
 export const invitationController = {
   async sendInvitation(req, res) {
-    const { project_id, expert_profile_id, message } = req.body;
+    const { project_id, expert_profile_id, message, engagement_model, payment_terms } = req.body;
     const buyerProfileId = req.user.profileId;
 
     try {
@@ -16,7 +16,7 @@ export const invitationController = {
         return res.status(400).json({ success: false, message: 'Invitation already pending.' });
       }
 
-      const invitation = await Invitation.create(project_id, expert_profile_id, message);
+      const invitation = await Invitation.create(project_id, expert_profile_id, message, engagement_model, payment_terms);
       res.json({ success: true, data: invitation });
     } catch (err) {
       console.error('Error sending invitation:', err);

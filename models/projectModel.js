@@ -42,19 +42,40 @@ const Project = {
   },
 
   getProjectsByClient: async (profileId, role, status = null) => {
-    const column = role === 'buyer' ? 'buyer_profile_id' : 'expert_profile_id';
-    let sql = `SELECT * FROM projects WHERE ${column} = $1`;
-    const params = [profileId];
+    if (role === 'buyer') {
+      let sql = `SELECT * FROM projects WHERE buyer_profile_id = $1`;
+      const params = [profileId];
 
-    if (status && status !== 'all') {
-      sql += ` AND status = $2`;
-      params.push(status);
+      if (status && status !== 'all') {
+        sql += ` AND status = $2`;
+        params.push(status);
+      }
+
+      sql += ` ORDER BY created_at DESC`;
+      const { rows } = await pool.query(sql, params);
+      return rows;
     }
 
-    sql += ` ORDER BY created_at DESC`;
+    if (role === 'expert') {
+      let sql = `
+        SELECT DISTINCT p.* 
+        FROM projects p
+        JOIN contracts c ON p.id = c.project_id
+        WHERE c.expert_profile_id = $1
+      `;
+      const params = [profileId];
 
-    const { rows } = await pool.query(sql, params);
-    return rows;
+      if (status && status !== 'all') {
+        sql += ` AND p.status = $2`;
+        params.push(status);
+      }
+
+      sql += ` ORDER BY p.created_at DESC`;
+      const { rows } = await pool.query(sql, params);
+      return rows;
+    }
+
+    return [];
   },
 
   getById: async (id) => {

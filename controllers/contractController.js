@@ -1,6 +1,7 @@
 import { body, validationResult } from "express-validator";
 import Contract from "../models/contractModel.js";
 import Invoice from "../models/invoiceModel.js";
+import WorkLog from "../models/workLogModel.js";
 import pool from "../config/db.js";
 
 export const validateContractCreation = [
@@ -511,14 +512,22 @@ export const completeContract = async (req, res) => {
             ? JSON.parse(contract.payment_terms)
             : contract.payment_terms || {};
 
-        await Invoice.createFinalFixed({
+        const finalInvoice = await Invoice.createFinalFixed({
           contractId: id,
           expertProfileId: contract.expert_profile_id,
           buyerProfileId: contract.buyer_profile_id,
           paymentTerms: paymentTerms,
         });
+
+        if (finalInvoice) {
+          // Automatically pay the invoice
+          await Invoice.payInvoice(finalInvoice.id);
+          // Release funds from escrow
+          await Contract.releaseEscrow(id, finalInvoice.amount);
+        }
+
       } catch (invoiceError) {
-        console.error("Final invoice creation error:", invoiceError);
+        console.error("Final invoice creation/payment error:", invoiceError);
       }
     }
 
@@ -585,6 +594,20 @@ export const finishSprint = async (req, res) => {
         : 1;
 
     const totalSprints = paymentTerms.total_sprints || 1;
+
+    const approvedCount = await WorkLog.countApprovedSprintSubmissions(
+      id,
+      currentSprint
+    );
+
+    if (approvedCount < 1) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "Cannot finish sprint without at least one approved work log in the current sprint",
+        code: "SPRINT_NO_APPROVED_LOGS",
+      });
+    }
 
     try {
       await Invoice.createFromSprint(

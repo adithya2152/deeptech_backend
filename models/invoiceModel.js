@@ -235,6 +235,10 @@ const Invoice = {
 
     const finalAmount = Math.max(totalContractAmount - totalBilledBefore, 0);
 
+    if (finalAmount <= 0) {
+      return null;
+    }
+
     return await Invoice.create({
       contract_id: contractId,
       expert_profile_id: expertProfileId,

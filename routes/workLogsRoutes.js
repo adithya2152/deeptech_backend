@@ -56,6 +56,8 @@ router.patch(
   '/:workLogId/edit',
   auth,
   requireRole('expert'),
+  uploadMultiple('attachments', 10),
+  handleUploadError,
   workLogsController.updateWorkLogContent
 );
 

@@ -282,20 +282,21 @@ export const getDashboardStats = async (req, res) => {
     const expert = await expertModel.getExpertById(expertId);
     const expertProfileId = expert?.expert_profile_id || expertId;
 
-    // Get total earnings from released_total
+    // Get total earnings from paid invoices
     const { rows: totalRows } = await pool.query(`
-      SELECT COALESCE(SUM(released_total), 0) AS total
-      FROM contracts
-      WHERE expert_profile_id = $1
+      SELECT COALESCE(SUM(amount), 0) AS total
+      FROM invoices
+      WHERE expert_profile_id = $1 AND status = 'paid'
     `, [expertProfileId]);
 
     // Get monthly earnings for chart (last 6 months)
     const { rows: monthlyRows } = await pool.query(`
       SELECT 
         TO_CHAR(date_trunc('month', created_at), 'Mon') AS name,
-        COALESCE(SUM(released_total), 0) AS value
-      FROM contracts
+        COALESCE(SUM(amount), 0) AS value
+      FROM invoices
       WHERE expert_profile_id = $1
+        AND status = 'paid'
         AND created_at >= NOW() - INTERVAL '6 months'
       GROUP BY date_trunc('month', created_at)
       ORDER BY date_trunc('month', created_at)
@@ -304,11 +305,11 @@ export const getDashboardStats = async (req, res) => {
     // Calculate trend: compare this month vs last month earnings
     const { rows: trendRows } = await pool.query(`
       SELECT 
-        COALESCE(SUM(CASE WHEN created_at >= date_trunc('month', NOW()) THEN released_total ELSE 0 END), 0) AS this_month,
+        COALESCE(SUM(CASE WHEN created_at >= date_trunc('month', NOW()) THEN amount ELSE 0 END), 0) AS this_month,
         COALESCE(SUM(CASE WHEN created_at >= date_trunc('month', NOW() - INTERVAL '1 month') 
-                          AND created_at < date_trunc('month', NOW()) THEN released_total ELSE 0 END), 0) AS last_month
-      FROM contracts
-      WHERE expert_profile_id = $1
+                          AND created_at < date_trunc('month', NOW()) THEN amount ELSE 0 END), 0) AS last_month
+      FROM invoices
+      WHERE expert_profile_id = $1 AND status = 'paid'
     `, [expertProfileId]);
 
     const thisMonth = parseFloat(trendRows[0].this_month) || 0;

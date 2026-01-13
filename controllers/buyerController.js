@@ -113,11 +113,12 @@ export const getDashboardStats = async (req, res) => {
       buyerProfileId = profileRows[0].id;
     }
 
-    // Get total spent from contracts using buyer_profile_id
+    // Get total spent from invoices (only paid ones)
     const { rows: spentRows } = await pool.query(`
-      SELECT COALESCE(SUM(escrow_funded_total), 0) AS total_spent
-      FROM contracts
+      SELECT COALESCE(SUM(amount), 0) AS total_spent
+      FROM invoices
       WHERE buyer_profile_id = $1
+        AND status = 'paid'
     `, [buyerProfileId]);
 
     // Count unique experts hired (contracts that reached active or completed status)

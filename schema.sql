@@ -50,6 +50,7 @@ CREATE TABLE public.chat_members (
   chat_id uuid NOT NULL,
   user_id uuid NOT NULL,
   joined_at timestamp with time zone DEFAULT now(),
+  member_role character varying DEFAULT 'expert'::character varying,
   CONSTRAINT chat_members_pkey PRIMARY KEY (chat_id, user_id),
   CONSTRAINT chat_members_user_fk FOREIGN KEY (user_id) REFERENCES public.user_accounts(id),
   CONSTRAINT chat_members_chat_id_fkey FOREIGN KEY (chat_id) REFERENCES public.chats(id)
@@ -135,6 +136,35 @@ CREATE TABLE public.doubt_answers (
   created_at timestamp with time zone DEFAULT now(),
   CONSTRAINT doubt_answers_pkey PRIMARY KEY (id),
   CONSTRAINT doubt_answers_user_fk FOREIGN KEY (user_id) REFERENCES public.user_accounts(id)
+);
+CREATE TABLE public.expert_ai_evaluations (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  expert_profile_id uuid NOT NULL,
+  expert_name text,
+  expert_email text,
+  overall_score numeric CHECK (overall_score >= 0::numeric AND overall_score <= 100::numeric),
+  predicted_tier text,
+  parsed_data jsonb NOT NULL,
+  scores jsonb NOT NULL,
+  admin_recommendation jsonb NOT NULL,
+  documents_analyzed integer DEFAULT 0,
+  model_version text DEFAULT 'v1'::text,
+  llm_provider text,
+  llm_status text CHECK (llm_status = ANY (ARRAY['success'::text, 'partial'::text, 'failed'::text])),
+  admin_review_status text DEFAULT 'pending'::text CHECK (admin_review_status = ANY (ARRAY['pending'::text, 'approved'::text, 'rejected'::text])),
+  admin_notes text,
+  reviewed_by uuid,
+  reviewed_at timestamp with time zone,
+  created_at timestamp with time zone DEFAULT now(),
+  github_link text,
+  portfolio_link text,
+  resume_content text,
+  research_content text,
+  portfolio_content text,
+  github_content text,
+  CONSTRAINT expert_ai_evaluations_pkey PRIMARY KEY (id),
+  CONSTRAINT expert_ai_evaluations_expert_profile_id_fkey FOREIGN KEY (expert_profile_id) REFERENCES public.profiles(id),
+  CONSTRAINT expert_ai_evaluations_reviewed_by_fkey FOREIGN KEY (reviewed_by) REFERENCES public.user_accounts(id)
 );
 CREATE TABLE public.expert_capability_scores (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
@@ -294,6 +324,8 @@ CREATE TABLE public.project_invitations (
   message text,
   created_at timestamp with time zone DEFAULT now(),
   expert_profile_id uuid,
+  engagement_model text DEFAULT 'daily'::text,
+  payment_terms jsonb DEFAULT '{}'::jsonb,
   CONSTRAINT project_invitations_pkey PRIMARY KEY (id),
   CONSTRAINT project_invitations_project_id_fkey FOREIGN KEY (project_id) REFERENCES public.projects(id),
   CONSTRAINT project_invitations_expert_profile_fk FOREIGN KEY (expert_profile_id) REFERENCES public.profiles(id)

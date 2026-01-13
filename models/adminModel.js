@@ -25,6 +25,7 @@ const AdminModel = {
         u.email, 
         COALESCE(p.profile_type, u.role, 'buyer') as role, 
         u.created_at as joined, 
+        u.last_login,
         u.is_banned,
         CASE 
           WHEN p.profile_type = 'expert' THEN 
@@ -36,8 +37,8 @@ const AdminModel = {
         END as vetting_status,
         CASE WHEN p.profile_type = 'expert' THEN e.expert_status ELSE NULL END as expert_status,
         CASE 
-            WHEN p.profile_type = 'expert' THEN (SELECT COALESCE(SUM(released_total), 0) FROM contracts WHERE expert_profile_id = p.id)
-            ELSE (SELECT COALESCE(SUM(total_amount), 0) FROM contracts WHERE buyer_profile_id = p.id)
+            WHEN p.profile_type = 'expert' THEN (SELECT COALESCE(SUM(amount), 0) FROM invoices WHERE expert_profile_id = p.id AND status = 'paid')
+            ELSE (SELECT COALESCE(SUM(amount), 0) FROM invoices WHERE buyer_profile_id = p.id AND status = 'paid')
         END as volume
       FROM user_accounts u
       LEFT JOIN profiles p ON p.user_id = u.id
@@ -89,8 +90,8 @@ const AdminModel = {
         (SELECT COUNT(*) FROM projects pj JOIN profiles pr ON pj.buyer_profile_id = pr.id WHERE pr.user_id = u.id) as project_count,
         (SELECT COUNT(*) FROM contracts ct JOIN profiles pr ON ct.expert_profile_id = pr.id OR ct.buyer_profile_id = pr.id WHERE pr.user_id = u.id) as contract_count,
         CASE 
-            WHEN p.profile_type = 'expert' THEN (SELECT COALESCE(SUM(released_total), 0) FROM contracts WHERE expert_profile_id = p.id)
-            ELSE (SELECT COALESCE(SUM(total_amount), 0) FROM contracts WHERE buyer_profile_id = p.id)
+            WHEN p.profile_type = 'expert' THEN (SELECT COALESCE(SUM(amount), 0) FROM invoices WHERE expert_profile_id = p.id AND status = 'paid')
+            ELSE (SELECT COALESCE(SUM(amount), 0) FROM invoices WHERE buyer_profile_id = p.id AND status = 'paid')
         END as total_volume
       FROM user_accounts u
       LEFT JOIN profiles p ON p.user_id = u.id
@@ -176,7 +177,7 @@ const AdminModel = {
         pr.id,
         pr.title,
         pr.description,
-        CASE WHEN pr.status = 'draft' THEN 'pending' ELSE pr.status END as status,
+        pr.status,
         pr.budget_min,
         pr.budget_max,
         pr.created_at,
