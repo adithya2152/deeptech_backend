@@ -67,23 +67,58 @@ export const getBuyerStats = async (req, res) => {
     // Try profile_id first, then user_id
     let buyer = await ProfileModel.getBuyerByProfileId(id);
     let base = buyer;
+    let buyerProfileId = id;
 
     if (!buyer) {
       base = await ProfileModel.getBaseProfileById(id);
       buyer = await ProfileModel.getBuyerProfileById(id);
+
+      // Id was a user_id, get the buyer profile id
+      const { rows: profileRows } = await pool.query(
+        `SELECT id FROM profiles WHERE user_id = $1 AND profile_type = 'buyer' LIMIT 1`,
+        [id]
+      );
+      if (profileRows.length > 0) {
+        buyerProfileId = profileRows[0].id;
+      }
+    } else {
+      // buyer was found by profile_id, use that
+      buyerProfileId = buyer.buyer_profile_id || id;
     }
 
     if (!base || !buyer) {
       return res.status(404).json({ message: "Client not found" });
     }
 
-    const projectsPosted = Number(buyer.projects_posted || 0);
-    const hiresMade = Number(buyer.hires_made || 0);
-    const hireRate = projectsPosted > 0 ? Math.round((hiresMade / projectsPosted) * 100) : 0;
+    // Calculate total_spent from paid invoices (accurate, not stale)
+    const { rows: spentRows } = await pool.query(`
+      SELECT COALESCE(SUM(amount), 0) AS total_spent
+      FROM invoices
+      WHERE buyer_profile_id = $1
+        AND status = 'paid'
+    `, [buyerProfileId]);
+
+    // Calculate projects posted from actual projects table
+    const { rows: projectRows } = await pool.query(`
+      SELECT COUNT(*) AS count FROM projects WHERE buyer_profile_id = $1
+    `, [buyerProfileId]);
+    const projectsPosted = parseInt(projectRows[0].count) || 0;
+
+    // Calculate hires made from contracts that reached active/completed status
+    const { rows: hireRows } = await pool.query(`
+      SELECT COUNT(DISTINCT expert_profile_id) AS count
+      FROM contracts
+      WHERE buyer_profile_id = $1
+        AND status IN ('active', 'completed')
+    `, [buyerProfileId]);
+    const hiresMade = parseInt(hireRows[0].count) || 0;
+
+    // Cap hire rate at 100%
+    const hireRate = projectsPosted > 0 ? Math.min(100, Math.round((hiresMade / projectsPosted) * 100)) : 0;
 
     return res.json({
       data: {
-        total_spent: Number(buyer.total_spent || 0),
+        total_spent: parseFloat(spentRows[0].total_spent) || 0,
         hire_rate: hireRate,
         jobs_posted_count: projectsPosted,
         avg_hourly_rate: 0,

@@ -93,3 +93,68 @@ export const updateMyProfile = async (req, res) => {
     res.status(500).json({ success: false, message: "Update failed" });
   }
 };
+
+import pool from "../config/db.js";
+
+// Increment helpful count on a review
+export const incrementHelpful = async (req, res) => {
+  try {
+    const { feedbackId } = req.params;
+    const userId = req.user.id;
+    const profileId = req.user.profileId;
+
+    // Get the feedback to check ownership
+    const { rows: feedback } = await pool.query(
+      `SELECT giver_id, receiver_id FROM feedback WHERE id = $1`,
+      [feedbackId]
+    );
+
+    if (feedback.length === 0) {
+      return res.status(404).json({ success: false, message: "Review not found" });
+    }
+
+    const { giver_id, receiver_id } = feedback[0];
+
+    // Prevent the giver and receiver from clicking helpful
+    if (String(giver_id) === String(profileId) || String(receiver_id) === String(profileId)) {
+      return res.status(403).json({
+        success: false,
+        message: "You cannot mark your own review as helpful"
+      });
+    }
+
+    // Check if user already voted helpful on this feedback
+    const { rows: existingVote } = await pool.query(
+      `SELECT id FROM feedback_helpful_votes WHERE feedback_id = $1 AND voter_id = $2`,
+      [feedbackId, userId]
+    );
+
+    if (existingVote.length > 0) {
+      return res.status(400).json({
+        success: false,
+        message: "You have already marked this review as helpful"
+      });
+    }
+
+    // Record the vote
+    await pool.query(
+      `INSERT INTO feedback_helpful_votes (feedback_id, voter_id) VALUES ($1, $2)`,
+      [feedbackId, userId]
+    );
+
+    // Increment the helpful count
+    const { rows: updated } = await pool.query(
+      `UPDATE feedback SET helpful_count = helpful_count + 1 WHERE id = $1 RETURNING helpful_count`,
+      [feedbackId]
+    );
+
+    res.json({
+      success: true,
+      message: "Marked as helpful",
+      data: { helpful_count: updated[0].helpful_count }
+    });
+  } catch (err) {
+    console.error("incrementHelpful error:", err);
+    res.status(500).json({ success: false, message: "Failed to mark as helpful" });
+  }
+};

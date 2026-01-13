@@ -132,7 +132,7 @@ const ProfileModel = {
         b.social_proof,
         b.company_website,
         b.vat_id,
-        b.total_spent,
+        COALESCE((SELECT SUM(amount) FROM invoices WHERE buyer_profile_id = b.buyer_profile_id AND status = 'paid'), 0) as total_spent,
         b.projects_posted,
         b.hires_made,
         b.avg_contract_value,
@@ -153,7 +153,24 @@ const ProfileModel = {
     const { rows } = await pool.query(
       `
       SELECT
-        b.*,
+        b.buyer_profile_id,
+        b.company_name,
+        b.company_description,
+        b.company_size,
+        b.industry,
+        b.website,
+        b.billing_country,
+        b.client_type,
+        b.social_proof,
+        b.company_website,
+        b.vat_id,
+        COALESCE((SELECT SUM(amount) FROM invoices WHERE buyer_profile_id = b.buyer_profile_id AND status = 'paid'), 0) as total_spent,
+        b.projects_posted,
+        b.hires_made,
+        b.avg_contract_value,
+        b.preferred_engagement_model,
+        b.verified,
+        b.is_active,
         u.first_name,
         u.last_name,
         u.email,
@@ -292,21 +309,32 @@ const ProfileModel = {
     return { base: { ...base, role }, buyer, expert, expertHasResume };
   },
 
-  getUserReviews: async (userId, role = null) => {
-    // 1. Resolve Profile IDs for the user
+  getUserReviews: async (idOrUserId, role = null) => {
     let profileIds = [];
+    let userQuery = `SELECT id FROM profiles WHERE user_id = $1`;
     if (role) {
-      const { rows } = await pool.query(
-        `SELECT id FROM profiles WHERE user_id = $1 AND profile_type = $2`,
-        [userId, role]
-      );
-      if (rows.length > 0) profileIds.push(rows[0].id);
-    } else {
-      const { rows } = await pool.query(
-        `SELECT id FROM profiles WHERE user_id = $1`,
-        [userId]
-      );
-      profileIds = rows.map(r => r.id);
+      userQuery += ` AND profile_type = $2`;
+    }
+    const userParams = role ? [idOrUserId, role] : [idOrUserId];
+
+    try {
+      const { rows: userRows } = await pool.query(userQuery, userParams);
+      if (userRows.length > 0) {
+        profileIds = userRows.map(r => r.id);
+      } else {
+        // If not found as User ID, assume it is a Profile ID and verify
+        let profQuery = `SELECT id FROM profiles WHERE id = $1`;
+        if (role) profQuery += ` AND profile_type = $2`;
+        const profParams = role ? [idOrUserId, role] : [idOrUserId];
+
+        const { rows: profRows } = await pool.query(profQuery, profParams);
+        if (profRows.length > 0) {
+          profileIds = [profRows[0].id];
+        }
+      }
+    } catch (err) {
+      // If UUID syntax error (invalid ID), ignore and return empty
+      return [];
     }
 
     if (profileIds.length === 0) return [];

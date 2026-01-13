@@ -48,4 +48,12 @@ router.delete(
   proposalsController.withdrawProposal
 );
 
+// Reject proposal (Buyer only)
+router.post(
+  "/:proposalId/reject",
+  auth,
+  requireRole("buyer"),
+  proposalsController.rejectProposal
+);
+
 export default router;

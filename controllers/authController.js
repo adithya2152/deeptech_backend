@@ -162,10 +162,14 @@ export const register = async (req, res) => {
     );
 
     if (existingUser.rows.length > 0) {
-      return res.status(409).json({
-        success: false,
-        message: "User with this email already exists",
-      });
+      // If the existing user is the same as the one we are registering (verified by OTP ticket),
+      // we allow the process to continue (it will update the profile).
+      if (existingUser.rows[0].id !== userId) {
+        return res.status(409).json({
+          success: false,
+          message: "User with this email already exists",
+        });
+      }
     }
 
     const { error: updateError } = await supabase.auth.admin.updateUserById(userId, {

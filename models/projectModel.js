@@ -95,6 +95,11 @@ const Project = {
         COALESCE(b.hires_made, 0) as buyer_hires_made,
         b.billing_country as buyer_location,
         (SELECT COUNT(*) FROM proposals WHERE project_id = p.id) as proposal_count,
+        (SELECT json_build_object(
+          'avg_rate', COALESCE(AVG(COALESCE(rate, quote_amount)), 0),
+          'min_rate', COALESCE(MIN(COALESCE(rate, quote_amount)), 0),
+          'max_rate', COALESCE(MAX(COALESCE(rate, quote_amount)), 0)
+        ) FROM proposals WHERE project_id = p.id) as proposal_stats,
         json_build_object(
           'id', bp.id, 
           'user_id', u.id,

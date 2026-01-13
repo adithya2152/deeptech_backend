@@ -250,6 +250,69 @@ export const withdrawProposal = async (req, res) => {
   }
 };
 
+// Reject proposal (buyer only)
+export const rejectProposal = async (req, res) => {
+  try {
+    const { proposalId } = req.params;
+    const buyerProfileId = req.user.profileId;
+
+    const proposal = await Proposal.getById(proposalId);
+    if (!proposal) {
+      return res.status(404).json({
+        success: false,
+        message: "Proposal not found",
+      });
+    }
+
+    // Verify buyer owns the project this proposal is for
+    const projectCheck = await pool.query(
+      `SELECT buyer_profile_id FROM projects WHERE id = $1`,
+      [proposal.project_id]
+    );
+
+    if (projectCheck.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "Project not found",
+      });
+    }
+
+    if (String(projectCheck.rows[0].buyer_profile_id) !== String(buyerProfileId)) {
+      return res.status(403).json({
+        success: false,
+        message: "You can only reject proposals on your own projects",
+      });
+    }
+
+    // Prevent rejecting if proposal is not pending
+    if (proposal.status !== "pending") {
+      return res.status(400).json({
+        success: false,
+        message: "Cannot reject a proposal that is not pending",
+      });
+    }
+
+    // Update proposal status to rejected
+    await pool.query(
+      `UPDATE proposals SET status = 'rejected', updated_at = NOW() WHERE id = $1`,
+      [proposalId]
+    );
+
+    res.status(200).json({
+      success: true,
+      message: "Proposal rejected successfully",
+      data: { proposalId, projectId: proposal.project_id },
+    });
+  } catch (error) {
+    console.error("Reject proposal error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to reject proposal",
+      error: error.message,
+    });
+  }
+};
+
 export default {
   createProposal,
   getProposalsByProject,
@@ -257,5 +320,6 @@ export default {
   getProposalById,
   updateProposal,
   withdrawProposal,
+  rejectProposal,
   validateProposal,
 };

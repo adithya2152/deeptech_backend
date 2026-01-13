@@ -43,7 +43,7 @@ router.get("/:contractId", auth, contractController.getContractById);
 router.post(
   "/:contractId/decline",
   auth,
-  requireRole("expert"),
+  // No role restriction - controller checks if user is buyer or expert
   contractController.declineContract
 );
 

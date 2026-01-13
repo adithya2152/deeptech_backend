@@ -410,7 +410,7 @@ CREATE TABLE public.user_accounts (
   email character varying NOT NULL UNIQUE,
   first_name character varying,
   last_name character varying,
-  role character varying DEFAULT 'user'::character varying CHECK (role::text = ANY (ARRAY['buyer'::text, 'expert'::text, 'admin'::text])),
+  role character varying DEFAULT 'buyer'::character varying CHECK (role::text = ANY (ARRAY['buyer'::text, 'expert'::text, 'admin'::text])),
   email_verified boolean DEFAULT false,
   created_at timestamp without time zone DEFAULT now(),
   updated_at timestamp without time zone DEFAULT now(),

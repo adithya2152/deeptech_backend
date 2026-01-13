@@ -1,6 +1,7 @@
 import express from 'express';
 import { auth } from '../middleware/auth.js';
-import { getMyProfile, updateMyProfile, getUserReviews } from '../controllers/profileController.js';
+import { getMyProfile, updateMyProfile, getUserReviews, incrementHelpful } from '../controllers/profileController.js';
+import { getNotificationCounts } from '../controllers/notificationController.js';
 import multer from 'multer';
 import { uploadProfileMedia } from '../controllers/authController.js';
 
@@ -8,7 +9,9 @@ const router = express.Router();
 
 router.get('/me', auth, getMyProfile);
 router.patch('/me', auth, updateMyProfile);
+router.get('/notifications/counts', auth, getNotificationCounts);
 router.get('/:id/reviews', getUserReviews);
+router.post('/reviews/:feedbackId/helpful', auth, incrementHelpful);
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } });
 

@@ -312,7 +312,7 @@ export const getProjectContracts = async (req, res) => {
 export const declineContract = async (req, res) => {
   try {
     const { contractId } = req.params;
-    const expertProfileId = req.user.profileId;
+    const userProfileId = req.user.profileId;
 
     const contract = await Contract.getById(contractId);
     if (!contract) {
@@ -322,10 +322,14 @@ export const declineContract = async (req, res) => {
       });
     }
 
-    if (contract.expert_profile_id !== expertProfileId) {
+    // Allow both buyer (who created the offer) and expert (who received it) to decline
+    const isExpert = String(contract.expert_profile_id) === String(userProfileId);
+    const isBuyer = String(contract.buyer_profile_id) === String(userProfileId);
+
+    if (!isExpert && !isBuyer) {
       return res.status(403).json({
         success: false,
-        message: "You can only decline contracts assigned to you",
+        message: "You can only decline contracts you are party to",
       });
     }
 
@@ -348,7 +352,7 @@ export const declineContract = async (req, res) => {
       WHERE project_id = $1
         AND expert_profile_id = $2
       `,
-      [contract.project_id, expertProfileId]
+      [contract.project_id, contract.expert_profile_id]
     );
 
     res.status(200).json({
@@ -491,7 +495,7 @@ export const completeContract = async (req, res) => {
       });
     }
 
-    if (contract.buyer_profile_id !== profileId && userRole !== "admin") {
+    if (String(contract.buyer_profile_id) !== String(profileId) && userRole !== "admin") {
       return res.status(403).json({
         success: false,
         message: "Only the buyer can complete the contract",
@@ -532,6 +536,12 @@ export const completeContract = async (req, res) => {
     }
 
     const updatedContract = await Contract.updateStatus(id, "completed");
+
+    // Auto-complete the project when contract is completed
+    await pool.query(
+      `UPDATE projects SET status = 'completed', completed_at = NOW() WHERE id = $1`,
+      [contract.project_id]
+    );
 
     return res.status(200).json({
       success: true,
