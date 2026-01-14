@@ -8,7 +8,6 @@ import pool from "../config/db.js";
  */
 export const getNotificationCounts = async (req, res) => {
     try {
-        const userId = req.user.id;
         const profileId = req.user.profileId;
         const role = req.user.role;
 
@@ -46,17 +45,21 @@ export const getNotificationCounts = async (req, res) => {
           AND status = 'pending'
       `, [profileId]);
 
-            // Count pending proposals (waiting for response)
-            const proposalsResult = await pool.query(`
+            // Count pending invitations for expert
+            const invitationsResult = await pool.query(`
         SELECT COUNT(*) as count
-        FROM proposals
+        FROM project_invitations
         WHERE expert_profile_id = $1
           AND status = 'pending'
       `, [profileId]);
 
+            const invitationsCount = parseInt(invitationsResult.rows[0].count) || 0;
+
             counts = {
                 marketplace: 0, // TODO: Could be new matching projects
-                proposals: parseInt(proposalsResult.rows[0].count) || 0,
+                // Backwards compatible: keep proposals key but map it to invitations.
+                proposals: invitationsCount,
+                invitations: invitationsCount,
                 contracts: parseInt(contractsResult.rows[0].count) || 0,
                 messages: 0 // TODO: Implement unread message count
             };

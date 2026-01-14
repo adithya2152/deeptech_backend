@@ -459,6 +459,103 @@ export const logout = async (req, res) => {
   }
 };
 
+export const requestPasswordReset = async (req, res) => {
+  try {
+    const { email } = req.body;
+    if (!email) {
+      return res.status(400).json({ success: false, message: "Email is required" });
+    }
+
+    const origin = req.headers.origin;
+    const baseUrl =
+      process.env.PASSWORD_RESET_REDIRECT_BASE_URL ||
+      process.env.FRONTEND_URL ||
+      origin ||
+      "http://localhost:5173";
+
+    const redirectTo = `${String(baseUrl).replace(/\/$/, "")}/reset-password`;
+
+    const { error } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo,
+    });
+
+    if (error) {
+      console.error("[requestPasswordReset] Supabase error:", error);
+      return res.status(500).json({
+        success: false,
+        message: "Unable to send password reset email. Please try again later.",
+      });
+    }
+
+    // Avoid email enumeration: always respond success when configured correctly.
+    return res.status(200).json({
+      success: true,
+      message: "If an account exists for that email, a password reset link has been sent.",
+      data: { redirectTo },
+    });
+  } catch (error) {
+    console.error("[requestPasswordReset] Error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Unable to send password reset email. Please try again later.",
+    });
+  }
+};
+
+export const resetPasswordWithRecoveryTokens = async (req, res) => {
+  try {
+    const { accessToken, refreshToken, password } = req.body;
+
+    if (!accessToken || !refreshToken || !password) {
+      return res.status(400).json({
+        success: false,
+        message: "accessToken, refreshToken, and password are required",
+      });
+    }
+
+    const { error: sessionError } = await supabase.auth.setSession({
+      access_token: accessToken,
+      refresh_token: refreshToken,
+    });
+
+    if (sessionError) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid or expired recovery session. Please request a new reset link.",
+      });
+    }
+
+    const { error: updateError } = await supabase.auth.updateUser({
+      password,
+    });
+
+    if (updateError) {
+      return res.status(400).json({
+        success: false,
+        message: updateError.message || "Failed to update password",
+      });
+    }
+
+    // Best-effort cleanup
+    try {
+      await supabase.auth.signOut();
+    } catch (e) {
+      // ignore
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "Password updated successfully. Please log in with your new password.",
+    });
+  } catch (error) {
+    console.error("[resetPasswordWithRecoveryTokens] Error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to reset password",
+    });
+  }
+};
+
 export const getCurrentUser = async (req, res) => {
   try {
     const userId = req.user?.id;

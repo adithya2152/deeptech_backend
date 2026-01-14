@@ -107,7 +107,10 @@ export const banUser = async (req, res) => {
   try {
     const { id } = req.params;
     const { reason } = req.body;
-    await AdminModel.banUser(id, reason);
+    const updated = await AdminModel.banUser(id, reason);
+    if (!updated) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
     res.json({ success: true, message: 'User banned successfully' });
   } catch (e) { res.status(500).json({ success: false, error: e.message }); }
 };
@@ -115,7 +118,10 @@ export const banUser = async (req, res) => {
 export const unbanUser = async (req, res) => {
   try {
     const { id } = req.params;
-    await AdminModel.unbanUser(id);
+    const updated = await AdminModel.unbanUser(id);
+    if (!updated) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
     res.json({ success: true, message: 'User unbanned successfully' });
   } catch (error) {
     console.error(error);
@@ -163,6 +169,13 @@ export const actionReport = async (req, res) => {
     if (action === 'dismiss') {
       await AdminModel.updateReportStatus(id, 'dismissed', 'Admin dismissed report');
     } else if (action === 'ban') {
+      // "Ban" should actually ban the reported user, not just mark the report resolved.
+      const { rows } = await pool.query('SELECT reported_id FROM reports WHERE id = $1', [id]);
+      if (rows.length === 0) {
+        return res.status(404).json({ success: false, message: 'Report not found' });
+      }
+      const reportedUserId = rows[0].reported_id;
+      await AdminModel.banUser(reportedUserId, 'Banned by admin (report action)');
       await AdminModel.updateReportStatus(id, 'resolved', 'User banned');
     } else {
       await AdminModel.updateReportStatus(id, 'resolved', `Action taken: ${action}`);

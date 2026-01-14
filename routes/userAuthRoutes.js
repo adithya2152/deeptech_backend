@@ -8,6 +8,8 @@ import {
   refreshAccessToken,
   sendEmailOtp,
   verifyEmailOtp,
+  requestPasswordReset,
+  resetPasswordWithRecoveryTokens,
   uploadProfileMedia,
   switchRole,
   getCurrentUser,
@@ -68,6 +70,24 @@ router.post(
 router.post("/register", validateRegister, handleValidationErrors, register);
 
 router.post("/login", validateLogin, handleValidationErrors, login);
+
+router.post(
+  "/password/forgot",
+  [validateEmail],
+  handleValidationErrors,
+  requestPasswordReset
+);
+
+router.post(
+  "/password/reset",
+  [
+    body("accessToken").notEmpty().withMessage("accessToken is required"),
+    body("refreshToken").notEmpty().withMessage("refreshToken is required"),
+    validatePassword,
+  ],
+  handleValidationErrors,
+  resetPasswordWithRecoveryTokens
+);
 
 router.post("/refresh-token", refreshAccessToken);
 

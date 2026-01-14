@@ -510,29 +510,39 @@ export const completeContract = async (req, res) => {
     }
 
     if (contract.engagement_model === "fixed") {
-      try {
-        const paymentTerms =
-          typeof contract.payment_terms === "string"
-            ? JSON.parse(contract.payment_terms)
-            : contract.payment_terms || {};
-
-        const finalInvoice = await Invoice.createFinalFixed({
-          contractId: id,
-          expertProfileId: contract.expert_profile_id,
-          buyerProfileId: contract.buyer_profile_id,
-          paymentTerms: paymentTerms,
+      const escrowBalance = parseFloat(contract.escrow_balance || 0);
+      if (escrowBalance <= 0) {
+        return res.status(400).json({
+          success: false,
+          message: "Cannot complete a fixed contract with zero escrow balance",
+          code: "ESCROW_EMPTY",
         });
-
-        if (finalInvoice) {
-          // Automatically pay the invoice
-          await Invoice.payInvoice(finalInvoice.id);
-          // Release funds from escrow
-          await Contract.releaseEscrow(id, finalInvoice.amount);
-        }
-
-      } catch (invoiceError) {
-        console.error("Final invoice creation/payment error:", invoiceError);
       }
+
+      const paymentTerms =
+        typeof contract.payment_terms === "string"
+          ? JSON.parse(contract.payment_terms)
+          : contract.payment_terms || {};
+
+      const finalInvoice = await Invoice.createFinalFixed({
+        contractId: id,
+        expertProfileId: contract.expert_profile_id,
+        buyerProfileId: contract.buyer_profile_id,
+        paymentTerms: paymentTerms,
+      });
+
+      if (!finalInvoice) {
+        return res.status(400).json({
+          success: false,
+          message: "No final invoice amount to generate for this contract",
+          code: "NO_FINAL_INVOICE",
+        });
+      }
+
+      // Automatically pay the invoice + release funds from escrow.
+      // If these fail, do not mark the contract completed.
+      await Invoice.payInvoice(finalInvoice.id);
+      await Contract.releaseEscrow(id, finalInvoice.amount);
     }
 
     const updatedContract = await Contract.updateStatus(id, "completed");

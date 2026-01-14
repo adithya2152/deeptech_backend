@@ -235,8 +235,8 @@ const Contract = {
     const query = `
       UPDATE contracts
       SET 
-        escrow_balance = escrow_balance + $2,
-        escrow_funded_total = escrow_funded_total + $2
+        escrow_balance = COALESCE(escrow_balance, 0) + $2,
+        escrow_funded_total = COALESCE(escrow_funded_total, 0) + $2
       WHERE id = $1
       RETURNING *;
     `;
@@ -248,8 +248,8 @@ const Contract = {
     const query = `
       UPDATE contracts
       SET 
-        escrow_balance = GREATEST(escrow_balance - $2, 0),
-        released_total = released_total + $2
+        escrow_balance = GREATEST(COALESCE(escrow_balance, 0) - $2, 0),
+        released_total = COALESCE(released_total, 0) + $2
       WHERE id = $1
       RETURNING *;
     `;
