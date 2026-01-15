@@ -467,22 +467,17 @@ export const requestPasswordReset = async (req, res) => {
     }
 
     const origin = req.headers.origin;
-    const PROD_FRONTEND_URL = "https://deeptech-frontend.vercel.app";
-
-    const isLocalhostUrl = (value) => {
-      try {
-        const url = new URL(String(value));
-        return url.hostname === "localhost" || url.hostname === "127.0.0.1";
-      } catch {
-        return false;
-      }
-    };
-
     const baseUrl =
+      process.env.PASSWORD_RESET_REDIRECT_BASE_URL ||
       process.env.FRONTEND_URL ||
-      (origin && !isLocalhostUrl(origin) ? origin : undefined) ||
-      PROD_FRONTEND_URL;
+      origin;
 
+    if (!baseUrl) {
+      return res.status(500).json({
+        success: false,
+        message: "Password reset redirect URL is not configured",
+      });
+    }
     const redirectTo = `${String(baseUrl).replace(/\/$/, "")}/reset-password`;
 
     const { error } = await supabase.auth.resetPasswordForEmail(email, {
