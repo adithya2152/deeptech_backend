@@ -467,11 +467,21 @@ export const requestPasswordReset = async (req, res) => {
     }
 
     const origin = req.headers.origin;
+    const PROD_FRONTEND_URL = "https://deeptech-frontend.vercel.app";
+
+    const isLocalhostUrl = (value) => {
+      try {
+        const url = new URL(String(value));
+        return url.hostname === "localhost" || url.hostname === "127.0.0.1";
+      } catch {
+        return false;
+      }
+    };
+
     const baseUrl =
-      process.env.PASSWORD_RESET_REDIRECT_BASE_URL ||
       process.env.FRONTEND_URL ||
-      origin ||
-      "http://localhost:5173";
+      (origin && !isLocalhostUrl(origin) ? origin : undefined) ||
+      PROD_FRONTEND_URL;
 
     const redirectTo = `${String(baseUrl).replace(/\/$/, "")}/reset-password`;
 
