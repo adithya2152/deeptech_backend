@@ -12,6 +12,7 @@ import {
   resetPasswordWithRecoveryTokens,
   uploadProfileMedia,
   switchRole,
+  acceptAdminInvite,
   getCurrentUser,
   updateCurrentUser
 } from "../controllers/authController.js";
@@ -107,5 +108,7 @@ router.post(
 );
 
 router.post("/switch-role", auth, switchRole);
+
+router.post("/accept-admin-invite", auth, acceptAdminInvite);
 
 export default router;

@@ -79,9 +79,10 @@ export const createProposal = async (req, res) => {
     });
   } catch (error) {
     console.error("Create proposal error:", error);
-    res.status(500).json({
+    const status = error?.statusCode && Number.isInteger(error.statusCode) ? error.statusCode : 500;
+    res.status(status).json({
       success: false,
-      message: "Failed to create proposal",
+      message: status === 409 ? (error.message || 'Proposal already exists') : "Failed to create proposal",
       error: error.message,
     });
   }

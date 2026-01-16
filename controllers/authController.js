@@ -466,16 +466,13 @@ export const requestPasswordReset = async (req, res) => {
       return res.status(400).json({ success: false, message: "Email is required" });
     }
 
-    const origin = req.headers.origin;
-    const baseUrl =
-      process.env.PASSWORD_RESET_REDIRECT_BASE_URL ||
-      process.env.FRONTEND_URL ||
-      origin;
+    const baseUrl = process.env.PASSWORD_RESET_REDIRECT_BASE_URL;
 
     if (!baseUrl) {
       return res.status(500).json({
         success: false,
-        message: "Password reset redirect URL is not configured",
+        message:
+          "Password reset redirect URL is not configured. Set PASSWORD_RESET_REDIRECT_BASE_URL.",
       });
     }
     const redirectTo = `${String(baseUrl).replace(/\/$/, "")}/reset-password`;
@@ -798,5 +795,65 @@ export const switchRole = async (req, res) => {
       success: false,
       message: err.message,
     });
+  }
+};
+
+/* ================= ACCEPT ADMIN INVITE ================= */
+
+export const acceptAdminInvite = async (req, res) => {
+  try {
+    const userId = req.user?.id;
+    const email = req.user?.email;
+    const { inviteToken } = req.body;
+
+    if (!userId || !email) {
+      return res.status(401).json({ success: false, message: 'Not authenticated' });
+    }
+
+    if (!inviteToken) {
+      return res.status(400).json({ success: false, message: 'inviteToken is required' });
+    }
+
+    if (!jwtSecret) {
+      return res.status(500).json({ success: false, message: 'JWT_SECRET not configured' });
+    }
+
+    let payload;
+    try {
+      payload = jwt.verify(inviteToken, jwtSecret);
+    } catch {
+      return res.status(400).json({ success: false, message: 'Invalid or expired invite token' });
+    }
+
+    if (!payload || payload.type !== 'admin_invite' || !payload.email) {
+      return res.status(400).json({ success: false, message: 'Invalid invite token' });
+    }
+
+    if (String(payload.email).toLowerCase() !== String(email).toLowerCase()) {
+      return res.status(403).json({
+        success: false,
+        message: 'Invite token does not match your account email',
+      });
+    }
+
+    await pool.query(
+      `UPDATE user_accounts SET role = 'admin', updated_at = NOW() WHERE id = $1`,
+      [userId]
+    );
+
+    const activeProfile = await getActiveProfile(userId);
+    const tokens = generateTokens(userId, email, 'admin', activeProfile?.id || null);
+
+    return res.json({
+      success: true,
+      message: 'Admin role activated',
+      data: {
+        role: 'admin',
+        tokens,
+      },
+    });
+  } catch (err) {
+    console.error('[acceptAdminInvite] Error:', err);
+    return res.status(500).json({ success: false, message: err.message });
   }
 };

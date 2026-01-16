@@ -24,6 +24,7 @@ import http from "http";
 import { Server } from "socket.io";
 import { initializeStorageBuckets } from "./utils/storage.js";
 import jwt from "jsonwebtoken";
+import { startSlaMonitor } from "./services/slaMonitor.js";
 
 dotenv.config();
 
@@ -277,6 +278,10 @@ server.listen(port, async () => {
     await initializeStorageBuckets(); 
   } catch (error) {
     console.error("Failed to initialize storage buckets:", error);
+  }
+
+  if (process.env.NODE_ENV !== 'test') {
+    startSlaMonitor({ thresholdHours: Number(process.env.ADMIN_SLA_HOURS || 24) });
   }
   console.log(`Server is running on port ${port}`);
   console.log(`Environment: ${process.env.NODE_ENV || "development"}`);
