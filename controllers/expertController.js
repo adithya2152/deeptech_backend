@@ -8,12 +8,7 @@ import pool from '../config/db.js';
 export const searchExperts = async (req, res) => {
   try {
     const { domain, query } = req.query;
-
-    const experts = await expertModel.searchExperts({
-      domain,
-      queryText: query,
-    });
-
+    const experts = await expertModel.searchExperts({ domain, queryText: query });
     res.json({ success: true, data: experts });
   } catch (err) {
     console.error(err);
@@ -27,13 +22,9 @@ export const searchExperts = async (req, res) => {
 export const semanticSearch = async (req, res) => {
   try {
     const { query, limit = 10 } = req.body;
-
-    if (!query?.trim()) {
-      return res.json({ results: [], totalResults: 0 });
-    }
+    if (!query?.trim()) return res.json({ results: [], totalResults: 0 });
 
     const response = await callSemanticSearchService(query, limit);
-
     const results = (response.results || []).map(e => ({
       id: e.id,
       name: e.name || '',
@@ -46,11 +37,7 @@ export const semanticSearch = async (req, res) => {
       availability_status: e.availability,
     }));
 
-    res.json({
-      results,
-      totalResults: results.length,
-      query,
-    });
+    res.json({ results, totalResults: results.length, query });
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: 'Semantic search failed' });
@@ -63,29 +50,20 @@ export const semanticSearch = async (req, res) => {
 export const getExpertById = async (req, res) => {
   try {
     const { id } = req.params;
-
-    // Validate id is a valid UUID
     if (!id || id === 'undefined' || id === 'null') {
       return res.status(400).json({ message: 'Valid expert ID is required' });
     }
 
     const expert = await expertModel.getExpertById(id);
-    if (!expert) {
-      return res.status(404).json({ message: 'Expert not found' });
-    }
+    if (!expert) return res.status(404).json({ message: 'Expert not found' });
 
-    // Get documents using expert_profile_id (with fallback)
     const expertProfileId = expert.expert_profile_id || expert.profile_id || id;
-
     let documents = [];
+    
     if (expertProfileId && expertProfileId !== 'undefined') {
       const { rows } = await pool.query(
-        `
-        SELECT id, document_type, sub_type, title, url, is_public, created_at
-        FROM expert_documents
-        WHERE expert_profile_id = $1
-        ORDER BY created_at DESC
-        `,
+        `SELECT id, document_type, sub_type, title, url, is_public, created_at
+         FROM expert_documents WHERE expert_profile_id = $1 ORDER BY created_at DESC`,
         [expertProfileId]
       );
       documents = rows;
@@ -99,7 +77,7 @@ export const getExpertById = async (req, res) => {
 };
 
 /* =========================
-   UPDATE EXPERT PROFILE
+   UPDATE EXPERT PROFILE (FIXED INTEGER PARSING)
 ========================= */
 export const updateExpertProfile = async (req, res) => {
   try {
@@ -107,45 +85,65 @@ export const updateExpertProfile = async (req, res) => {
     const userId = req.user.id;
     const profileId = req.user.profileId;
 
-    // Check if user owns this expert profile
     if (req.user.role !== 'expert') {
       return res.status(403).json({ message: 'Unauthorized' });
     }
 
-    // Allow update if expertId matches user's ID or profile ID
     const expert = await expertModel.getExpertById(expertId);
-    if (!expert) {
-      return res.status(404).json({ message: 'Expert not found' });
-    }
+    if (!expert) return res.status(404).json({ message: 'Expert not found' });
 
-    // Verify ownership
     if (expert.user_id !== userId && expert.expert_profile_id !== profileId) {
       return res.status(403).json({ message: 'Unauthorized' });
     }
 
-    /* user_accounts table */
+    // 1. Update User Account Fields
     const profileFields = ['avatar_url', 'banner_url', 'country', 'timezone'];
-    const updates = [];
-    const values = [];
+    const userUpdates = [];
+    const userValues = [];
     let i = 1;
 
     for (const field of profileFields) {
       if (req.body[field] !== undefined) {
-        updates.push(`${field} = $${i++}`);
-        values.push(req.body[field]);
+        userUpdates.push(`${field} = $${i++}`);
+        userValues.push(req.body[field]);
       }
     }
 
-    if (updates.length) {
-      values.push(userId);
+    if (userUpdates.length) {
+      userValues.push(userId);
       await pool.query(
-        `UPDATE user_accounts SET ${updates.join(', ')}, updated_at = NOW() WHERE id = $${i}`,
-        values
+        `UPDATE user_accounts SET ${userUpdates.join(', ')}, updated_at = NOW() WHERE id = $${i}`,
+        userValues
       );
     }
 
-    /* experts table - use expert_profile_id */
-    const updatedExpert = await expertModel.updateExpertById(expert.expert_profile_id, req.body);
+    // 2. Filter & Sanitize Expert Fields
+    const allowedExpertFields = [
+      'experience_summary', 'domains', 'headline', 'availability_status',
+      'avg_daily_rate', 'avg_sprint_rate', 'avg_fixed_rate', 'years_experience',
+      'preferred_engagement_mode', 'languages', 'portfolio_url', 'skills',
+      'patents', 'papers', 'projects', 'products', 'certificates', 'awards',
+      'profile_video_url', 'is_profile_complete', 'expert_status'
+    ];
+
+    // Fields that MUST be Integers in your DB
+    const integerFields = ['years_experience', 'avg_daily_rate', 'avg_sprint_rate', 'avg_fixed_rate'];
+
+    const expertDataToUpdate = {};
+    Object.keys(req.body).forEach(key => {
+      if (allowedExpertFields.includes(key)) {
+        let value = req.body[key];
+
+        // CRITICAL FIX: Round decimals to integers to prevent DB crash
+        if (integerFields.includes(key) && value !== null && value !== undefined && value !== '') {
+           value = Math.round(Number(value)); 
+        }
+
+        expertDataToUpdate[key] = value;
+      }
+    });
+
+    const updatedExpert = await expertModel.updateExpertById(expert.expert_profile_id, expertDataToUpdate);
 
     res.json({
       success: true,
@@ -153,7 +151,7 @@ export const updateExpertProfile = async (req, res) => {
       message: 'Expert profile updated',
     });
   } catch (err) {
-    console.error(err);
+    console.error("Update Expert Error:", err);
     res.status(500).json({ message: 'Update failed' });
   }
 };
@@ -163,21 +161,15 @@ export const updateExpertProfile = async (req, res) => {
 ========================= */
 export const getResumeSignedUrl = async (req, res) => {
   try {
-    const userId = req.user.id;
     const profileId = req.user.profileId;
-
     const { rows } = await pool.query(
-      `
-      SELECT url FROM expert_documents
-      WHERE expert_profile_id = $1 AND document_type = 'resume'
-      ORDER BY created_at DESC LIMIT 1
-      `,
+      `SELECT url FROM expert_documents
+       WHERE expert_profile_id = $1 AND document_type = 'resume'
+       ORDER BY created_at DESC LIMIT 1`,
       [profileId]
     );
 
-    if (!rows.length) {
-      return res.status(404).json({ message: 'No resume uploaded' });
-    }
+    if (!rows.length) return res.status(404).json({ message: 'No resume uploaded' });
 
     const { data } = await supabase.storage
       .from('expert-private-documents')
@@ -195,9 +187,7 @@ export const getResumeSignedUrl = async (req, res) => {
 ========================= */
 export const uploadExpertDocument = async (req, res) => {
   try {
-    if (req.user.role !== 'expert') {
-      return res.status(403).json({ message: 'Only experts allowed' });
-    }
+    if (req.user.role !== 'expert') return res.status(403).json({ message: 'Only experts allowed' });
 
     const { type, sub_type, title, url, is_public = true } = req.body;
     const file = req.file;
@@ -205,38 +195,29 @@ export const uploadExpertDocument = async (req, res) => {
     const profileId = req.user.profileId;
 
     const allowed = ['resume', 'work', 'publication', 'credential', 'other'];
-    if (!allowed.includes(type)) {
-      return res.status(400).json({ message: 'Invalid type' });
-    }
+    if (!allowed.includes(type)) return res.status(400).json({ message: 'Invalid type' });
 
     let finalUrl = url;
 
     if (file) {
-      const bucket =
-        type === 'resume'
-          ? 'expert-private-documents'
-          : 'expert-public-documents';
-
+      const bucket = type === 'resume' ? 'expert-private-documents' : 'expert-public-documents';
       const filePath = `experts/${userId}/${type}/${Date.now()}-${file.originalname}`;
 
-      await supabase.storage.from(bucket).upload(filePath, file.buffer, {
+      const { error } = await supabase.storage.from(bucket).upload(filePath, file.buffer, {
         contentType: file.mimetype,
       });
 
-      finalUrl =
-        type === 'resume'
-          ? filePath
-          : supabase.storage.from(bucket).getPublicUrl(filePath).data.publicUrl;
+      if (error) throw error;
+
+      finalUrl = type === 'resume'
+        ? filePath
+        : supabase.storage.from(bucket).getPublicUrl(filePath).data.publicUrl;
     }
 
-    // Use expert_profile_id in the insert
     const { rows } = await pool.query(
-      `
-      INSERT INTO expert_documents
-      (expert_id, expert_profile_id, document_type, sub_type, title, url, is_public)
-      VALUES ($1, $2, $3, $4, $5, $6, $7)
-      RETURNING *
-      `,
+      `INSERT INTO expert_documents
+       (expert_id, expert_profile_id, document_type, sub_type, title, url, is_public)
+       VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
       [userId, profileId, type, sub_type, title, finalUrl, is_public]
     );
 
@@ -260,10 +241,7 @@ export const deleteExpertDocument = async (req, res) => {
       [documentId, profileId]
     );
 
-    if (!rowCount) {
-      return res.status(404).json({ message: 'Not found' });
-    }
-
+    if (!rowCount) return res.status(404).json({ message: 'Not found' });
     res.json({ success: true });
   } catch (err) {
     console.error(err);
@@ -277,58 +255,40 @@ export const deleteExpertDocument = async (req, res) => {
 export const getDashboardStats = async (req, res) => {
   try {
     const expertId = req.params.id;
-
-    // Try to find the expert to get their expert_profile_id
     const expert = await expertModel.getExpertById(expertId);
     const expertProfileId = expert?.expert_profile_id || expertId;
 
-    // Get total earnings from paid invoices
     const { rows: totalRows } = await pool.query(`
       SELECT COALESCE(SUM(amount), 0) AS total
-      FROM invoices
-      WHERE expert_profile_id = $1 AND status = 'paid'
+      FROM invoices WHERE expert_profile_id = $1 AND status = 'paid'
     `, [expertProfileId]);
 
-    // Get monthly earnings for chart (last 6 months)
     const { rows: monthlyRows } = await pool.query(`
-      SELECT 
-        TO_CHAR(date_trunc('month', created_at), 'Mon') AS name,
-        COALESCE(SUM(amount), 0) AS value
+      SELECT TO_CHAR(date_trunc('month', created_at), 'Mon') AS name, COALESCE(SUM(amount), 0) AS value
       FROM invoices
-      WHERE expert_profile_id = $1
-        AND status = 'paid'
-        AND created_at >= NOW() - INTERVAL '6 months'
-      GROUP BY date_trunc('month', created_at)
-      ORDER BY date_trunc('month', created_at)
+      WHERE expert_profile_id = $1 AND status = 'paid' AND created_at >= NOW() - INTERVAL '6 months'
+      GROUP BY date_trunc('month', created_at) ORDER BY date_trunc('month', created_at)
     `, [expertProfileId]);
 
-    // Calculate trend: compare this month vs last month earnings
     const { rows: trendRows } = await pool.query(`
       SELECT 
         COALESCE(SUM(CASE WHEN created_at >= date_trunc('month', NOW()) THEN amount ELSE 0 END), 0) AS this_month,
         COALESCE(SUM(CASE WHEN created_at >= date_trunc('month', NOW() - INTERVAL '1 month') 
                           AND created_at < date_trunc('month', NOW()) THEN amount ELSE 0 END), 0) AS last_month
-      FROM invoices
-      WHERE expert_profile_id = $1 AND status = 'paid'
+      FROM invoices WHERE expert_profile_id = $1 AND status = 'paid'
     `, [expertProfileId]);
 
     const thisMonth = parseFloat(trendRows[0].this_month) || 0;
     const lastMonth = parseFloat(trendRows[0].last_month) || 0;
     let trendPercentage = 0;
-    if (lastMonth > 0) {
-      trendPercentage = Math.round(((thisMonth - lastMonth) / lastMonth) * 100);
-    } else if (thisMonth > 0) {
-      trendPercentage = 100; // If no last month data but has this month, show +100%
-    }
+    if (lastMonth > 0) trendPercentage = Math.round(((thisMonth - lastMonth) / lastMonth) * 100);
+    else if (thisMonth > 0) trendPercentage = 100;
 
     res.json({
       success: true,
       data: {
         totalEarnings: parseFloat(totalRows[0].total) || 0,
-        earningsChart: monthlyRows.map(row => ({
-          name: row.name,
-          value: parseFloat(row.value) || 0
-        })),
+        earningsChart: monthlyRows.map(r => ({ name: r.name, value: parseFloat(r.value) || 0 })),
         trendPercentage
       }
     });

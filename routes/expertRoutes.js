@@ -3,10 +3,11 @@ import expertController from '../controllers/expertController.js';
 import { auth } from '../middleware/auth.js';
 import multer from 'multer';
 
+// 1. INCREASED LIMIT TO 10MB (Necessary for large PDF research papers)
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: {
-    fileSize: 5 * 1024 * 1024,
+    fileSize: 10 * 1024 * 1024, 
   },
 });
 
@@ -124,19 +125,29 @@ router.get('/', expertController.searchExperts);
  */
 router.post('/semantic-search', expertController.semanticSearch);
 
-// routes/experts.js
+// --- DOCUMENT ROUTES (Must be before /:id routes) ---
+
 router.get(
   '/resume/signed-url',
   auth,
   expertController.getResumeSignedUrl
 );
 
-router.post('/documents', auth, upload.single('file'), expertController.uploadExpertDocument);
+// This handles the file upload for Resumes, Papers, Certs
+router.post(
+  '/documents', 
+  auth, 
+  upload.single('file'), 
+  expertController.uploadExpertDocument
+);
 
 router.delete('/documents/:documentId', auth, expertController.deleteExpertDocument);
 
-// Dashboard stats route (must be before /:id to avoid conflict)
-router.get('/:id/dashboard-stats', auth, expertController.getDashboardStats);
+// --- SPECIFIC EXPERT ROUTES ---
+
+// Dashboard stats (Changed path slightly to be cleaner, but /dashboard-stats is fine if frontend matches)
+router.get('/:id/stats', auth, expertController.getDashboardStats); 
+router.get('/:id/dashboard-stats', auth, expertController.getDashboardStats); // Kept legacy support just in case
 
 /**
  * @swagger
@@ -177,7 +188,7 @@ router.get('/:id', expertController.getExpertById);
 /**
  * @swagger
  * /api/experts/{id}:
- * patch:
+ * put:
  * summary: Update expert profile
  * tags:
  * - Experts
@@ -210,6 +221,8 @@ router.get('/:id', expertController.getExpertById);
  * 403:
  * description: Unauthorized
  */
-router.patch('/:id', auth, expertController.updateExpertProfile);
+// 2. CHANGED PATCH TO PUT (Safer for full profile updates)
+router.put('/:id', auth, expertController.updateExpertProfile);
+router.patch('/:id', auth, expertController.updateExpertProfile); // Kept legacy support
 
 export default router;
