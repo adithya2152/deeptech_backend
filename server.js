@@ -20,6 +20,9 @@ import buyerRoutes from './routes/buyerRoutes.js';
 import scoringRoutes from "./routes/scoringRoutes.js";
 import rankingRoutes from "./routes/rankingRoutes.js";
 import tagsRoutes from "./routes/tagsRoutes.js";
+import timeEntryRoutes from "./routes/timeEntryRoutes.js";
+import contractDocumentRoutes from "./routes/contractDocumentRoutes.js";
+import notificationRoutes from "./routes/notificationRoutes.js";
 import http from "http";
 import { Server } from "socket.io";
 import { initializeStorageBuckets } from "./utils/storage.js";
@@ -247,6 +250,9 @@ app.use("/api/invitations", invitationRoutes);
 app.use("/api/scoring", scoringRoutes);
 app.use("/api/ranking", rankingRoutes);
 app.use("/api/tags", tagsRoutes);
+app.use("/api/time-entries", timeEntryRoutes);
+app.use("/api/contracts", contractDocumentRoutes);
+app.use("/api/notifications", notificationRoutes);
 
 app.use((req, res) => {
   res.status(404).json({
@@ -275,7 +281,7 @@ app.use((err, req, res, next) => {
 
 server.listen(port, async () => {
   try {
-    await initializeStorageBuckets(); 
+    await initializeStorageBuckets();
   } catch (error) {
     console.error("Failed to initialize storage buckets:", error);
   }

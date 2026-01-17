@@ -10,6 +10,7 @@ const Proposal = {
       rate,
       duration_days,
       sprint_count,
+      estimated_hours,
       quote_amount,
       message,
     } = data;
@@ -36,7 +37,7 @@ const Proposal = {
         err.statusCode = 409;
         throw err;
       }
-      
+
       const updateRes = await pool.query(
         `
       UPDATE proposals
@@ -45,12 +46,13 @@ const Proposal = {
         rate = $2,
         duration_days = $3,
         sprint_count = $4,
-        quote_amount = $5,
-        message = $6,
+        estimated_hours = $5,
+        quote_amount = $6,
+        message = $7,
         status = 'pending',
         created_at = NOW(),
         updated_at = NOW()
-      WHERE id = $7
+      WHERE id = $8
       RETURNING *;
       `,
         [
@@ -58,6 +60,7 @@ const Proposal = {
           rate,
           duration_days,
           sprint_count,
+          estimated_hours,
           quote_amount,
           message,
           existing.id,
@@ -75,13 +78,14 @@ const Proposal = {
       rate,
       duration_days,
       sprint_count,
+      estimated_hours,
       quote_amount,
       message,
       status,
       created_at,
       updated_at
     )
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'pending', NOW(), NOW())
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'pending', NOW(), NOW())
     RETURNING *;
   `;
 
@@ -92,6 +96,7 @@ const Proposal = {
       rate,
       duration_days,
       sprint_count,
+      estimated_hours,
       quote_amount,
       message,
     ];

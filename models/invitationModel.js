@@ -97,12 +97,44 @@ export const Invitation = {
         ? JSON.parse(invitation.payment_terms)
         : (invitation.payment_terms || {});
 
+      const num = (v) => Number(v);
+      const isNonNegative = (n) => Number.isFinite(n) && n >= 0;
+      const isPositive = (n) => Number.isFinite(n) && n > 0;
+
+      if (engagementModel === 'daily') {
+        const rate = num(invPaymentTerms.daily_rate);
+        const days = num(invPaymentTerms.total_days);
+        if (!isNonNegative(rate) || !isNonNegative(days) || !isPositive(rate) || !isPositive(days)) {
+          throw new Error('Invalid daily payment terms');
+        }
+      } else if (engagementModel === 'sprint') {
+        const rate = num(invPaymentTerms.sprint_rate);
+        const sprints = num(invPaymentTerms.total_sprints);
+        const duration = num(invPaymentTerms.sprint_duration_days);
+        if (!isNonNegative(rate) || !isNonNegative(sprints) || !isNonNegative(duration) || !isPositive(rate) || !isPositive(sprints) || !isPositive(duration)) {
+          throw new Error('Invalid sprint payment terms');
+        }
+      } else if (engagementModel === 'hourly') {
+        const rate = num(invPaymentTerms.hourly_rate);
+        const hours = num(invPaymentTerms.estimated_hours);
+        if (!isNonNegative(rate) || !isNonNegative(hours) || !isPositive(rate) || !isPositive(hours)) {
+          throw new Error('Invalid hourly payment terms');
+        }
+      } else if (engagementModel === 'fixed') {
+        const total = num(invPaymentTerms.total_amount);
+        if (!isNonNegative(total) || !isPositive(total)) {
+          throw new Error('Invalid fixed payment terms');
+        }
+      }
+
       // Calculate total amount based on model
       let totalAmount = 0;
       if (engagementModel === 'daily') {
         totalAmount = (invPaymentTerms.daily_rate || 0) * (invPaymentTerms.total_days || 0);
       } else if (engagementModel === 'sprint') {
         totalAmount = (invPaymentTerms.sprint_rate || 0) * (invPaymentTerms.total_sprints || 0);
+      } else if (engagementModel === 'hourly') {
+        totalAmount = (invPaymentTerms.hourly_rate || 0) * (invPaymentTerms.estimated_hours || 0);
       } else if (engagementModel === 'fixed') {
         totalAmount = invPaymentTerms.total_amount || 0;
       }

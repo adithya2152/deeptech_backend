@@ -57,7 +57,6 @@ export const updateMyProfile = async (req, res) => {
       return res.status(404).json({ success: false, message: "Profile not found" });
     }
 
-    console.log('[updateMyProfile] Request body:', req.body);
 
     await ProfileModel.updateBaseProfile(userId, req.body);
 

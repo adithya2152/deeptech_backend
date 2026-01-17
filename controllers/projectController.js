@@ -83,6 +83,24 @@ export const updateProject = async (req, res) => {
     const ownerProfileId = existingProject.buyer?.id || existingProject.buyer_profile_id;
     if (ownerProfileId !== profileId) return res.status(403).json({ error: 'Unauthorized' });
 
+    // If status change is requested, validate the transition
+    if (updates.status && updates.status !== existingProject.status) {
+      const validation = await validateStatusTransition(
+        id,
+        existingProject.status,
+        updates.status
+      );
+
+      if (!validation.allowed) {
+        return res.status(400).json({
+          error: validation.reason,
+          currentStatus: existingProject.status,
+          requestedStatus: updates.status
+        });
+      }
+    }
+
+    // For non-draft projects, only allow status changes (no other field edits)
     if (existingProject.status !== 'draft') {
       const keys = Object.keys(updates);
       const isOnlyStatusUpdate = keys.length === 1 && keys[0] === 'status';
@@ -110,6 +128,119 @@ export const updateProject = async (req, res) => {
     res.status(500).json({ error: 'Server error' });
   }
 };
+
+/**
+ * Validate project status transitions based on business rules
+ * 
+ * Status Flow:
+ * - draft → open (publish to marketplace)
+ * - open → draft (only if NO proposals)
+ * - open → closed (close to new proposals)
+ * - open → active (auto: when contract is created)
+ * - closed → open (reopen for proposals)
+ * - closed → archived (archive the project)
+ * - active → completed (only when all contracts are complete)
+ * - active → paused (pause work)
+ * - paused → active (resume)
+ * - completed → (final state)
+ * - archived → (final state)
+ */
+async function validateStatusTransition(projectId, currentStatus, newStatus) {
+  // Import pool for querying
+  const pool = (await import('../config/db.js')).default;
+
+  // Define allowed transitions for each status
+  const allowedTransitions = {
+    draft: ['open', 'archived'],
+    open: ['draft', 'closed', 'active', 'archived'],
+    closed: ['open', 'archived'],
+    active: ['completed', 'paused'],
+    paused: ['active', 'closed'],
+    completed: [], // Final state
+    archived: [], // Final state
+  };
+
+  // Check if transition is in allowed list
+  const allowed = allowedTransitions[currentStatus] || [];
+  if (!allowed.includes(newStatus)) {
+    return {
+      allowed: false,
+      reason: `Cannot change status from "${currentStatus}" to "${newStatus}". Allowed transitions: ${allowed.length ? allowed.join(', ') : 'none (final state)'}`
+    };
+  }
+
+  // Special rules based on business logic
+
+  // 1. open → draft: Only allowed if NO proposals exist
+  if (currentStatus === 'open' && newStatus === 'draft') {
+    const { rows } = await pool.query(
+      'SELECT COUNT(*) as count FROM proposals WHERE project_id = $1',
+      [projectId]
+    );
+    const proposalCount = parseInt(rows[0].count, 10);
+
+    if (proposalCount > 0) {
+      return {
+        allowed: false,
+        reason: `Cannot revert to draft: ${proposalCount} proposal(s) have been submitted. Close the project instead.`
+      };
+    }
+  }
+
+  // 2. open → archived: Only allowed if NO proposals AND NO contracts
+  if (currentStatus === 'open' && newStatus === 'archived') {
+    const { rows: proposalRows } = await pool.query(
+      'SELECT COUNT(*) as count FROM proposals WHERE project_id = $1',
+      [projectId]
+    );
+    const proposalCount = parseInt(proposalRows[0].count, 10);
+
+    if (proposalCount > 0) {
+      return {
+        allowed: false,
+        reason: `Cannot archive: ${proposalCount} proposal(s) exist. Close the project first.`
+      };
+    }
+  }
+
+  // 3. * → active: Should only happen automatically when contract is created
+  //    (This is a soft check - we allow it but it's typically system-triggered)
+  if (newStatus === 'active' && currentStatus !== 'paused') {
+    // Check if there's at least one active/pending contract
+    const { rows } = await pool.query(
+      `SELECT COUNT(*) as count FROM contracts 
+       WHERE project_id = $1 AND status IN ('pending', 'active')`,
+      [projectId]
+    );
+    const contractCount = parseInt(rows[0].count, 10);
+
+    if (contractCount === 0) {
+      return {
+        allowed: false,
+        reason: 'Cannot set to active: No pending or active contracts exist for this project.'
+      };
+    }
+  }
+
+  // 4. active → completed: Only if all contracts are completed
+  if (currentStatus === 'active' && newStatus === 'completed') {
+    const { rows } = await pool.query(
+      `SELECT COUNT(*) as pending FROM contracts 
+       WHERE project_id = $1 AND status IN ('pending', 'active', 'paused')`,
+      [projectId]
+    );
+    const pendingContracts = parseInt(rows[0].pending, 10);
+
+    if (pendingContracts > 0) {
+      return {
+        allowed: false,
+        reason: `Cannot complete: ${pendingContracts} contract(s) are still active or pending.`
+      };
+    }
+  }
+
+  return { allowed: true };
+}
 
 export const deleteProject = async (req, res) => {
   try {
@@ -167,10 +298,23 @@ export const submitProposal = async (req, res) => {
   try {
     const { id: projectId } = req.params;
     const expertProfileId = req.user.profileId;
-    const { amount, duration, cover_letter } = req.body;
 
-    if (!amount || !duration || !cover_letter) {
-      return res.status(400).json({ error: 'Amount, duration, and cover letter are required' });
+    // Accept both old field names (amount, duration, cover_letter) 
+    // and new field names (rate, quote_amount, message, duration_days)
+    const {
+      amount, duration, cover_letter,  // old names
+      rate, quote_amount, message, duration_days, // new names
+      engagement_model, sprint_count, estimated_hours // engagement model fields
+    } = req.body;
+
+    // Use new names with fallback to old names
+    const finalRate = rate || amount;
+    const finalDuration = duration_days || duration;
+    const finalMessage = message || cover_letter;
+    const finalQuoteAmount = quote_amount || amount;
+
+    if (!finalRate || !finalDuration || !finalMessage) {
+      return res.status(400).json({ error: 'Rate/amount, duration, and message/cover letter are required' });
     }
 
     if (req.user.role !== 'expert') {
@@ -189,9 +333,13 @@ export const submitProposal = async (req, res) => {
     }
 
     const proposal = await projectModel.createProposal(projectId, expertProfileId, {
-      amount,
-      duration,
-      cover_letter
+      amount: finalQuoteAmount,
+      duration: finalDuration,
+      cover_letter: finalMessage,
+      engagement_model: engagement_model || 'fixed',
+      rate: finalRate,
+      sprint_count,
+      estimated_hours
     });
 
     res.status(201).json({

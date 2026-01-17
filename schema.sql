@@ -1,6 +1,13 @@
 -- WARNING: This schema is for context only and is not meant to be run.
 -- Table order and constraints may not be valid for execution.
 
+CREATE TABLE public.admin_sla_alerts (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  entity_type text NOT NULL CHECK (entity_type = ANY (ARRAY['dispute'::text, 'report'::text])),
+  entity_id uuid NOT NULL,
+  alerted_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT admin_sla_alerts_pkey PRIMARY KEY (id)
+);
 CREATE TABLE public.answer_votes (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
   answer_id uuid NOT NULL,
@@ -61,6 +68,43 @@ CREATE TABLE public.chats (
   created_at timestamp with time zone DEFAULT now(),
   CONSTRAINT chats_pkey PRIMARY KEY (id)
 );
+CREATE TABLE public.circumvention_logs (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  user_id uuid NOT NULL,
+  chat_id uuid,
+  message_id uuid,
+  detected_type text NOT NULL CHECK (detected_type = ANY (ARRAY['email'::text, 'phone'::text, 'social_media'::text, 'external_link'::text])),
+  detected_value text NOT NULL,
+  original_content text,
+  recipient_id uuid,
+  contract_id uuid,
+  action_taken text DEFAULT 'logged'::text CHECK (action_taken = ANY (ARRAY['logged'::text, 'blocked'::text, 'warned'::text])),
+  created_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT circumvention_logs_pkey PRIMARY KEY (id),
+  CONSTRAINT circumvention_logs_user_fk FOREIGN KEY (user_id) REFERENCES public.user_accounts(id),
+  CONSTRAINT circumvention_logs_chat_fk FOREIGN KEY (chat_id) REFERENCES public.chats(id),
+  CONSTRAINT circumvention_logs_message_fk FOREIGN KEY (message_id) REFERENCES public.messages(id),
+  CONSTRAINT circumvention_logs_contract_fk FOREIGN KEY (contract_id) REFERENCES public.contracts(id)
+);
+CREATE TABLE public.contract_documents (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  contract_id uuid NOT NULL,
+  document_type text NOT NULL CHECK (document_type = ANY (ARRAY['service_agreement'::text, 'nda'::text])),
+  title text NOT NULL,
+  content text NOT NULL,
+  pdf_url text,
+  status text DEFAULT 'pending'::text CHECK (status = ANY (ARRAY['pending'::text, 'signed'::text])),
+  buyer_signed_at timestamp with time zone,
+  buyer_signature_name text,
+  buyer_ip_address text,
+  expert_signed_at timestamp with time zone,
+  expert_signature_name text,
+  expert_ip_address text,
+  created_at timestamp with time zone DEFAULT now(),
+  updated_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT contract_documents_pkey PRIMARY KEY (id),
+  CONSTRAINT contract_documents_contract_id_fkey FOREIGN KEY (contract_id) REFERENCES public.contracts(id)
+);
 CREATE TABLE public.contracts (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
   project_id uuid NOT NULL,
@@ -77,10 +121,17 @@ CREATE TABLE public.contracts (
   escrow_funded_total numeric DEFAULT 0,
   released_total numeric DEFAULT 0,
   nda_custom_content text,
-  nda_status text DEFAULT 'draft'::text CHECK (nda_status = ANY (ARRAY['draft'::text, 'sent'::text, 'signed'::text])),
+  nda_status text DEFAULT 'draft'::text CHECK (nda_status = ANY (ARRAY['draft'::text, 'sent'::text, 'signed'::text, 'skipped'::text])),
   updated_at timestamp without time zone DEFAULT now(),
   expert_profile_id uuid NOT NULL,
   buyer_profile_id uuid NOT NULL,
+  nda_required boolean DEFAULT false,
+  currency text DEFAULT 'USD'::text,
+  offer_accepted_at timestamp with time zone,
+  buyer_signed_at timestamp without time zone,
+  expert_signed_at timestamp without time zone,
+  buyer_signature_name text,
+  expert_signature_name text,
   CONSTRAINT contracts_pkey PRIMARY KEY (id),
   CONSTRAINT contracts_buyer_profile_fk FOREIGN KEY (buyer_profile_id) REFERENCES public.profiles(id),
   CONSTRAINT contracts_expert_profile_fk FOREIGN KEY (expert_profile_id) REFERENCES public.profiles(id),
@@ -218,7 +269,6 @@ CREATE TABLE public.experts (
   skills ARRAY DEFAULT '{}'::text[],
   embedding_text text,
   embedding_updated_at timestamp with time zone,
-  embedding USER-DEFINED,
   is_profile_complete boolean DEFAULT false,
   expert_status text NOT NULL DEFAULT 'incomplete'::text CHECK (expert_status = ANY (ARRAY['incomplete'::text, 'pending_review'::text, 'rookie'::text, 'verified'::text, 'rejected'::text])),
   admin_notes text,
@@ -241,6 +291,8 @@ CREATE TABLE public.experts (
   github_url text,
   is_active boolean DEFAULT true,
   expert_profile_id uuid NOT NULL,
+  search_vector tsvector,
+  embedding USER-DEFINED,
   CONSTRAINT experts_pkey PRIMARY KEY (expert_profile_id),
   CONSTRAINT experts_id_fkey FOREIGN KEY (id) REFERENCES public.user_accounts(id)
 );
@@ -257,6 +309,15 @@ CREATE TABLE public.feedback (
   receiver_role text NOT NULL DEFAULT 'expert'::text CHECK (receiver_role = ANY (ARRAY['buyer'::text, 'expert'::text])),
   CONSTRAINT feedback_pkey PRIMARY KEY (id)
 );
+CREATE TABLE public.feedback_helpful_votes (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  feedback_id uuid NOT NULL,
+  voter_id uuid NOT NULL,
+  created_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT feedback_helpful_votes_pkey PRIMARY KEY (id),
+  CONSTRAINT feedback_helpful_votes_feedback_id_fkey FOREIGN KEY (feedback_id) REFERENCES public.feedback(id),
+  CONSTRAINT feedback_helpful_votes_voter_id_fkey FOREIGN KEY (voter_id) REFERENCES public.user_accounts(id)
+);
 CREATE TABLE public.invoices (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
   contract_id uuid NOT NULL,
@@ -272,9 +333,22 @@ CREATE TABLE public.invoices (
   source_id uuid,
   expert_profile_id uuid NOT NULL,
   buyer_profile_id uuid NOT NULL,
+  currency text DEFAULT 'USD'::text,
   CONSTRAINT invoices_pkey PRIMARY KEY (id),
   CONSTRAINT invoices_buyer_profile_fk FOREIGN KEY (buyer_profile_id) REFERENCES public.profiles(id),
   CONSTRAINT invoices_contract_fk FOREIGN KEY (contract_id) REFERENCES public.contracts(id)
+);
+CREATE TABLE public.leaderboard_earnings (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  expert_profile_id uuid NOT NULL,
+  earnings_week numeric DEFAULT 0,
+  earnings_month numeric DEFAULT 0,
+  earnings_all_time numeric DEFAULT 0,
+  week_start_date date,
+  month_start_date date,
+  updated_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT leaderboard_earnings_pkey PRIMARY KEY (id),
+  CONSTRAINT leaderboard_earnings_profile_fk FOREIGN KEY (expert_profile_id) REFERENCES public.profiles(id)
 );
 CREATE TABLE public.message_attachments (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
@@ -297,6 +371,18 @@ CREATE TABLE public.messages (
   CONSTRAINT messages_pkey PRIMARY KEY (id),
   CONSTRAINT messages_sender_fk FOREIGN KEY (sender_id) REFERENCES public.user_accounts(id),
   CONSTRAINT messages_chat_id_fkey FOREIGN KEY (chat_id) REFERENCES public.chats(id)
+);
+CREATE TABLE public.notifications (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  type character varying NOT NULL,
+  title character varying NOT NULL,
+  message text NOT NULL,
+  link character varying,
+  is_read boolean DEFAULT false,
+  created_at timestamp with time zone DEFAULT now(),
+  profile_id uuid NOT NULL,
+  CONSTRAINT notifications_pkey PRIMARY KEY (id),
+  CONSTRAINT notifications_profile_id_fkey FOREIGN KEY (profile_id) REFERENCES public.profiles(id)
 );
 CREATE TABLE public.phone_otps (
   id bigint NOT NULL DEFAULT nextval('phone_otps_id_seq'::regclass),
@@ -346,6 +432,7 @@ CREATE TABLE public.projects (
   risk_categories ARRAY,
   expected_outcome text,
   buyer_profile_id uuid NOT NULL,
+  currency text DEFAULT 'USD'::text,
   CONSTRAINT projects_pkey PRIMARY KEY (id),
   CONSTRAINT projects_buyer_profile_fk FOREIGN KEY (buyer_profile_id) REFERENCES public.profiles(id)
 );
@@ -362,6 +449,7 @@ CREATE TABLE public.proposals (
   rate numeric NOT NULL,
   sprint_count integer,
   expert_profile_id uuid,
+  currency text DEFAULT 'USD'::text,
   CONSTRAINT proposals_pkey PRIMARY KEY (id),
   CONSTRAINT proposals_profile_fk FOREIGN KEY (expert_profile_id) REFERENCES public.profiles(id),
   CONSTRAINT proposals_project_id_projects_id_fk FOREIGN KEY (project_id) REFERENCES public.projects(id)
@@ -405,6 +493,25 @@ CREATE TABLE public.score_history (
   CONSTRAINT score_history_pkey PRIMARY KEY (id),
   CONSTRAINT score_history_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.user_accounts(id)
 );
+CREATE TABLE public.time_entries (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  contract_id uuid NOT NULL,
+  expert_profile_id uuid NOT NULL,
+  description text NOT NULL,
+  start_time timestamp with time zone NOT NULL,
+  end_time timestamp with time zone,
+  duration_minutes integer,
+  hourly_rate numeric NOT NULL,
+  amount numeric DEFAULT (((duration_minutes)::numeric / 60.0) * hourly_rate),
+  status text DEFAULT 'draft'::text CHECK (status = ANY (ARRAY['draft'::text, 'submitted'::text, 'approved'::text, 'rejected'::text])),
+  reviewer_comment text,
+  approved_at timestamp with time zone,
+  created_at timestamp with time zone DEFAULT now(),
+  updated_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT time_entries_pkey PRIMARY KEY (id),
+  CONSTRAINT time_entries_contract_id_fkey FOREIGN KEY (contract_id) REFERENCES public.contracts(id),
+  CONSTRAINT time_entries_expert_profile_id_fkey FOREIGN KEY (expert_profile_id) REFERENCES public.profiles(id)
+);
 CREATE TABLE public.user_accounts (
   id uuid NOT NULL,
   email character varying NOT NULL UNIQUE,
@@ -429,8 +536,21 @@ CREATE TABLE public.user_accounts (
   terms_accepted boolean DEFAULT false,
   terms_accepted_at timestamp with time zone,
   deleted_at timestamp with time zone,
+  city text,
+  state text,
+  linkedin_url text,
+  github_url text,
   CONSTRAINT user_accounts_pkey PRIMARY KEY (id),
   CONSTRAINT profiles_id_fkey FOREIGN KEY (id) REFERENCES auth.users(id)
+);
+CREATE TABLE public.user_preferred_currency (
+  user_id uuid NOT NULL,
+  preferred_currency text DEFAULT 'USD'::text,
+  country text,
+  detected_at timestamp with time zone DEFAULT now(),
+  updated_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT user_preferred_currency_pkey PRIMARY KEY (user_id),
+  CONSTRAINT user_preferred_currency_user_fk FOREIGN KEY (user_id) REFERENCES public.user_accounts(id)
 );
 CREATE TABLE public.user_rank_tiers (
   user_id uuid NOT NULL,

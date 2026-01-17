@@ -466,6 +466,19 @@ export const requestPasswordReset = async (req, res) => {
       return res.status(400).json({ success: false, message: "Email is required" });
     }
 
+    // Check if user exists in our database
+    const existingUser = await pool.query(
+      "SELECT id FROM user_accounts WHERE email = $1",
+      [email]
+    );
+
+    if (existingUser.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "No account found with this email address.",
+      });
+    }
+
     const baseUrl = process.env.PASSWORD_RESET_REDIRECT_BASE_URL;
 
     if (!baseUrl) {
@@ -855,5 +868,124 @@ export const acceptAdminInvite = async (req, res) => {
   } catch (err) {
     console.error('[acceptAdminInvite] Error:', err);
     return res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+// Delete Account - Permanently deletes the user and all associated data
+export const deleteAccount = async (req, res) => {
+  const userId = req.user?.id;
+
+  if (!userId) {
+    return res.status(401).json({ success: false, message: 'Not authenticated' });
+  }
+
+  try {
+    // Start a transaction for data integrity
+    await pool.query('BEGIN');
+
+    try {
+      // Delete in order of dependencies (child records first)
+
+      // Delete work logs
+      await pool.query(`DELETE FROM work_logs WHERE contract_id IN (
+        SELECT id FROM contracts WHERE buyer_id = $1 OR expert_id = $1
+      )`, [userId]);
+
+      // Delete day work summaries
+      await pool.query(`DELETE FROM day_work_summaries WHERE contract_id IN (
+        SELECT id FROM contracts WHERE buyer_id = $1 OR expert_id = $1
+      )`, [userId]);
+
+      // Delete disputes
+      await pool.query(`DELETE FROM disputes WHERE contract_id IN (
+        SELECT id FROM contracts WHERE buyer_id = $1 OR expert_id = $1
+      )`, [userId]);
+
+      // Delete invoices
+      await pool.query(`DELETE FROM invoices WHERE contract_id IN (
+        SELECT id FROM contracts WHERE buyer_id = $1 OR expert_id = $1
+      )`, [userId]);
+
+      // Delete contract documents
+      await pool.query(`DELETE FROM contract_documents WHERE contract_id IN (
+        SELECT id FROM contracts WHERE buyer_id = $1 OR expert_id = $1
+      )`, [userId]);
+
+      // Delete time entries
+      await pool.query(`DELETE FROM time_entries WHERE contract_id IN (
+        SELECT id FROM contracts WHERE buyer_id = $1 OR expert_id = $1
+      )`, [userId]);
+
+      // Delete contracts
+      await pool.query(`DELETE FROM contracts WHERE buyer_id = $1 OR expert_id = $1`, [userId]);
+
+      // Delete proposals
+      await pool.query(`DELETE FROM proposals WHERE expert_id IN (
+        SELECT id FROM profiles WHERE user_id = $1
+      )`, [userId]);
+
+      // Delete project invitations
+      await pool.query(`DELETE FROM project_invitations WHERE expert_id IN (
+        SELECT id FROM profiles WHERE user_id = $1
+      ) OR project_id IN (
+        SELECT id FROM projects WHERE buyer_id = $1
+      )`, [userId]);
+
+      // Delete projects
+      await pool.query(`DELETE FROM projects WHERE buyer_id = $1`, [userId]);
+
+      // Delete messages (soft approach - set sender to null or delete)
+      await pool.query(`DELETE FROM messages WHERE sender_id = $1`, [userId]);
+
+      // Delete conversations the user is part of
+      await pool.query(`DELETE FROM conversation_participants WHERE user_id = $1`, [userId]);
+
+      // Delete reviews
+      await pool.query(`DELETE FROM reviews WHERE reviewer_id = $1 OR reviewee_id = $1`, [userId]);
+
+      // Delete user scores
+      await pool.query(`DELETE FROM user_scores WHERE user_id = $1`, [userId]);
+
+      // Delete user tags
+      await pool.query(`DELETE FROM user_tags WHERE user_id = $1`, [userId]);
+
+      // Delete rank tiers
+      await pool.query(`DELETE FROM user_rank_tiers WHERE user_id = $1`, [userId]);
+
+      // Delete expert profile if exists
+      await pool.query(`DELETE FROM experts WHERE user_id = $1`, [userId]);
+
+      // Delete buyer profile if exists
+      await pool.query(`DELETE FROM buyers WHERE user_id = $1`, [userId]);
+
+      // Delete profiles
+      await pool.query(`DELETE FROM profiles WHERE user_id = $1`, [userId]);
+
+      // Delete sessions
+      await pool.query(`DELETE FROM sessions WHERE user_id = $1`, [userId]);
+
+      // Finally, delete the user account
+      await pool.query(`DELETE FROM user_accounts WHERE id = $1`, [userId]);
+
+      await pool.query('COMMIT');
+
+      console.log(`[deleteAccount] Successfully deleted user ${userId} and all related data`);
+
+      return res.json({
+        success: true,
+        message: 'Your account has been permanently deleted.',
+      });
+
+    } catch (deleteErr) {
+      await pool.query('ROLLBACK');
+      throw deleteErr;
+    }
+
+  } catch (err) {
+    console.error('[deleteAccount] Error:', err);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to delete account. Please contact support.',
+    });
   }
 };

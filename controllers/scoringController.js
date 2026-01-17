@@ -39,11 +39,15 @@ export const getUserScore = async (req, res) => {
 
 export const getLeaderboard = async (req, res) => {
     try {
-        const { limit = 50, role = "expert" } = req.query;
+        const { limit = 50, role = "expert", sortBy = "score" } = req.query;
         const lim = Math.min(Number(limit) || 50, 200);
 
-        // Join user_scores -> user_accounts for user details
-        // Join profiles to filter by role (profile_type)
+        // Determine sort column
+        const sortColumn = sortBy === "earnings"
+            ? "COALESCE(earnings.total_earned, 0)"
+            : "us.overall_score";
+
+        // Left join earnings from PAID invoices for actual money received
         const { rows } = await pool.query(
             `SELECT us.user_id,
               us.overall_score,
@@ -51,12 +55,23 @@ export const getLeaderboard = async (req, res) => {
               u.last_name,
               u.avatar_url,
               rt.tier_name,
-              rt.tier_level
+              rt.tier_level,
+              COALESCE(earnings.total_earned, 0) as total_earned,
+              COALESCE(earnings.invoices_paid, 0) as invoices_paid
        FROM public.user_scores us
        JOIN public.user_accounts u ON u.id = us.user_id
        JOIN public.profiles p ON p.user_id = u.id AND p.profile_type = $1
        LEFT JOIN public.user_rank_tiers rt ON rt.user_id = us.user_id
-       ORDER BY us.overall_score DESC NULLS LAST
+       LEFT JOIN (
+         SELECT c.expert_profile_id,
+                SUM(i.amount) as total_earned,
+                COUNT(DISTINCT i.id) as invoices_paid
+         FROM invoices i
+         JOIN contracts c ON c.id = i.contract_id
+         WHERE i.status = 'paid'
+         GROUP BY c.expert_profile_id
+       ) earnings ON earnings.expert_profile_id = p.id
+       ORDER BY ${sortColumn} DESC NULLS LAST
        LIMIT $2`,
             [role, lim]
         );

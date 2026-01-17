@@ -126,6 +126,15 @@ const AdminModel = {
       )
       SELECT
         u.id, u.first_name, u.last_name, u.email,
+        u.username,
+        u.phone,
+        u.country as account_country,
+        u.city as account_city,
+        u.state as account_state,
+        u.timezone,
+        NULL::text as account_website_url,
+        u.linkedin_url as account_linkedin_url,
+        u.github_url as account_github_url,
         CASE
           WHEN u.role = 'admin' THEN 'admin'
           WHEN ep.expert_profile_id IS NOT NULL THEN 'expert'
@@ -142,6 +151,8 @@ const AdminModel = {
         bp.buyer_profile_id,
         u.created_at as joined, u.is_banned, u.ban_reason, u.avatar_url,
         u.last_login,
+        COALESCE(urt.tier_name, 'Newcomer') as tier_name,
+        COALESCE(urt.tier_level, 1) as tier_level,
         CASE 
           WHEN ep.expert_profile_id IS NOT NULL THEN 
             CASE 
@@ -182,8 +193,26 @@ const AdminModel = {
         ARRAY[]::text[] as papers,
         ARRAY[]::text[] as products,
         b.billing_country as location,
+        b.company_name,
+        b.company_size,
+        b.industry,
+        b.company_description,
+        COALESCE(b.company_website, b.website) as company_website,
+        b.client_type,
+        COALESCE(b.total_spent, 0) as buyer_total_spent,
+        COALESCE(b.projects_posted, 0) as buyer_projects_posted,
+        COALESCE(b.hires_made, 0) as buyer_hires_made,
+        COALESCE(b.verified, false) as buyer_verified,
         (SELECT COUNT(*) FROM projects pj JOIN profiles pr ON pj.buyer_profile_id = pr.id WHERE pr.user_id = u.id) as project_count,
         (SELECT COUNT(*) FROM contracts ct JOIN profiles pr ON ct.expert_profile_id = pr.id OR ct.buyer_profile_id = pr.id WHERE pr.user_id = u.id) as contract_count,
+        (
+          SELECT COALESCE(SUM(i.amount), 0)
+          FROM invoices i
+          WHERE i.status = 'paid'
+            AND i.expert_profile_id IN (
+              SELECT id FROM profiles WHERE user_id = u.id AND profile_type = 'expert'
+            )
+        ) as expert_total_earnings,
         (
           SELECT COALESCE(SUM(i.amount), 0)
           FROM invoices i
@@ -198,6 +227,7 @@ const AdminModel = {
       LEFT JOIN buyer_profile bp ON bp.user_id = u.id
       LEFT JOIN experts e ON e.expert_profile_id = ep.expert_profile_id
       LEFT JOIN buyers b ON b.buyer_profile_id = bp.buyer_profile_id
+      LEFT JOIN user_rank_tiers urt ON urt.user_id = u.id
       LEFT JOIN user_scores us ON us.user_id = u.id
       WHERE u.id = $1
     `;
@@ -241,6 +271,38 @@ const AdminModel = {
     return rows[0];
   },
 
+  upsertUserRankTier: async (userId, { tier_name, tier_level } = {}) => {
+    const name = String(tier_name || '').trim();
+    const level = Number(tier_level);
+
+    if (!name || !Number.isInteger(level)) {
+      throw new Error('tier_name and tier_level are required');
+    }
+
+    const query = `
+      INSERT INTO user_rank_tiers (user_id, tier_name, tier_level, achieved_at, previous_tier, updated_at)
+      VALUES (
+        $1,
+        $2,
+        $3,
+        now(),
+        (SELECT tier_name FROM user_rank_tiers WHERE user_id = $1),
+        now()
+      )
+      ON CONFLICT (user_id)
+      DO UPDATE SET
+        previous_tier = user_rank_tiers.tier_name,
+        tier_name = EXCLUDED.tier_name,
+        tier_level = EXCLUDED.tier_level,
+        achieved_at = now(),
+        updated_at = now()
+      RETURNING user_id, tier_name, tier_level, achieved_at, previous_tier, updated_at
+    `;
+
+    const { rows } = await pool.query(query, [userId, name, level]);
+    return rows[0];
+  },
+
   getUserContracts: async (userId) => {
     // userId is user_accounts.id - need to find their profile IDs
     const query = `
@@ -256,6 +318,51 @@ const AdminModel = {
       JOIN profiles p ON p.user_id = $1
       WHERE c.buyer_profile_id = p.id OR c.expert_profile_id = p.id
       ORDER BY c.created_at DESC
+    `;
+    const { rows } = await pool.query(query, [userId]);
+    return rows;
+  },
+
+  getProfileContracts: async (profileId, side = 'all') => {
+    const normalizedSide = String(side || 'all').toLowerCase();
+    let where = '(c.buyer_profile_id = $1 OR c.expert_profile_id = $1)';
+    if (normalizedSide === 'buyer') where = 'c.buyer_profile_id = $1';
+    if (normalizedSide === 'expert') where = 'c.expert_profile_id = $1';
+
+    const query = `
+      SELECT
+        c.id,
+        c.project_id,
+        c.total_amount,
+        c.engagement_model,
+        c.status,
+        c.created_at,
+        pr.title as project_title
+      FROM contracts c
+      JOIN projects pr ON c.project_id = pr.id
+      WHERE ${where}
+      ORDER BY c.created_at DESC
+    `;
+    const { rows } = await pool.query(query, [profileId]);
+    return rows;
+  },
+
+  getUserProjects: async (userId) => {
+    const query = `
+      SELECT
+        pj.id,
+        pj.title,
+        pj.status,
+        pj.domain,
+        pj.trl_level,
+        pj.budget_min,
+        pj.budget_max,
+        pj.created_at,
+        pj.updated_at
+      FROM projects pj
+      JOIN profiles pr ON pj.buyer_profile_id = pr.id
+      WHERE pr.user_id = $1
+      ORDER BY pj.created_at DESC
     `;
     const { rows } = await pool.query(query, [userId]);
     return rows;
@@ -424,8 +531,16 @@ const AdminModel = {
     return rows[0];
   },
 
-  getReports: async () => {
+  getReports: async ({ status = null } = {}) => {
     // reporter_id and reported_id reference auth.users (same as user_accounts.id), not profiles
+    const params = [];
+    let where = '';
+
+    if (status && status !== 'all') {
+      params.push(status);
+      where = `WHERE r.status = $${params.length}`;
+    }
+
     const query = `
       SELECT r.*, 
              u1.first_name || ' ' || u1.last_name as reporter_name,
@@ -433,15 +548,23 @@ const AdminModel = {
       FROM reports r
       LEFT JOIN user_accounts u1 ON r.reporter_id = u1.id
       LEFT JOIN user_accounts u2 ON r.reported_id = u2.id
-      WHERE r.status = 'pending'
+      ${where}
       ORDER BY r.created_at DESC
     `;
-    const { rows } = await pool.query(query);
+
+    const { rows } = await pool.query(query, params);
     return rows;
   },
 
   updateReportStatus: async (reportId, status, note) => {
-    const query = `UPDATE reports SET status = $2, resolution_note = $3 WHERE id = $1 RETURNING id`;
+    const query = `
+      UPDATE reports
+      SET status = $2,
+          resolution_note = $3,
+          updated_at = now()
+      WHERE id = $1
+      RETURNING id
+    `;
     const { rows } = await pool.query(query, [reportId, status, note]);
     return rows[0];
   },
@@ -607,33 +730,14 @@ const AdminModel = {
       LIMIT $2
     `;
 
-    // Country breakdown across experts (user_accounts.country) and buyers (buyers.billing_country).
+    // Country user counts should come from a single source of truth.
+    // We use user_accounts.country to avoid double-counting users who have both buyer + expert profiles.
     const countryUserCountsQuery = `
-      WITH expert_counts AS (
-        SELECT
-          COALESCE(NULLIF(TRIM(u.country), ''), 'Unknown') as country,
-          COUNT(DISTINCT u.id)::int as experts_count
-        FROM user_accounts u
-        JOIN profiles p ON p.user_id = u.id
-        WHERE p.profile_type = 'expert'
-        GROUP BY COALESCE(NULLIF(TRIM(u.country), ''), 'Unknown')
-      ),
-      buyer_counts AS (
-        SELECT
-          COALESCE(NULLIF(TRIM(b.billing_country), ''), 'Unknown') as country,
-          COUNT(DISTINCT u.id)::int as buyers_count
-        FROM buyers b
-        JOIN profiles p ON p.id = b.buyer_profile_id
-        JOIN user_accounts u ON u.id = p.user_id
-        GROUP BY COALESCE(NULLIF(TRIM(b.billing_country), ''), 'Unknown')
-      )
       SELECT
-        COALESCE(e.country, b.country) as country,
-        COALESCE(e.experts_count, 0)::int as experts_count,
-        COALESCE(b.buyers_count, 0)::int as buyers_count,
-        (COALESCE(e.experts_count, 0) + COALESCE(b.buyers_count, 0))::int as total_users
-      FROM expert_counts e
-      FULL OUTER JOIN buyer_counts b ON LOWER(e.country) = LOWER(b.country)
+        COALESCE(NULLIF(TRIM(u.country), ''), 'Unknown') as country,
+        COUNT(DISTINCT u.id)::int as total_users
+      FROM user_accounts u
+      GROUP BY COALESCE(NULLIF(TRIM(u.country), ''), 'Unknown')
       ORDER BY total_users DESC, country ASC
       LIMIT $1
     `;

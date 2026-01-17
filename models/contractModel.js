@@ -50,6 +50,19 @@ const Contract = {
       total_amount = rate * days;
     }
 
+    if (engagement_model === "fixed") {
+      total_amount = Number(payment_terms?.total_amount || 0);
+    }
+
+    if (engagement_model === "hourly") {
+      const hourlyRate = Number(payment_terms?.hourly_rate || 0);
+      const estimatedHours = Number(payment_terms?.estimated_hours || 0);
+
+      // Hourly contracts can be open-ended; if estimated hours are provided,
+      // treat that as the contract's estimated value for UI + funding.
+      total_amount = hourlyRate > 0 && estimatedHours > 0 ? hourlyRate * estimatedHours : 0;
+    }
+
     const query = `
       INSERT INTO contracts (
         project_id, 
@@ -92,22 +105,60 @@ const Contract = {
   },
 
   signNdaAndActivate: async (contract_id, signature_name, ip_address) => {
+    // Legacy function - kept for safety, but logic moved to separate steps
     const query = `
       UPDATE contracts 
       SET 
-        status = 'active',
-        nda_status = 'signed',
-        nda_signed_at = NOW(),
-        nda_signature_name = $1,
-        nda_ip_address = $2
-      WHERE id = $3
+        status = 'active', 
+        nda_status = 'signed', 
+        nda_signed_at = NOW(), 
+        nda_signature_name = $1, 
+        nda_ip_address = $2 
+      WHERE id = $3 
       RETURNING *;
     `;
-    const { rows } = await pool.query(query, [
-      signature_name,
-      ip_address,
-      contract_id,
-    ]);
+    const { rows } = await pool.query(query, [signature_name, ip_address, contract_id]);
+    return rows[0];
+  },
+
+  signContract: async (contract_id, role, signature_name) => {
+    // role: 'buyer' | 'expert'
+    const column = role === "buyer" ? "buyer_signed_at" : "expert_signed_at";
+    const sigColumn = role === "buyer" ? "buyer_signature_name" : "expert_signature_name";
+
+    const query = `
+      UPDATE contracts
+      SET ${column} = NOW(), ${sigColumn} = $2, updated_at = NOW()
+      WHERE id = $1
+      RETURNING *;
+    `;
+    const { rows } = await pool.query(query, [contract_id, signature_name]);
+    return rows[0];
+  },
+
+  signNda: async (contract_id, signature_name, ip_address) => {
+    const query = `
+      UPDATE contracts 
+      SET 
+        nda_status = 'signed', 
+        nda_signed_at = NOW(), 
+        nda_signature_name = $1, 
+        nda_ip_address = $2 
+      WHERE id = $3 
+      RETURNING *;
+    `;
+    const { rows } = await pool.query(query, [signature_name, ip_address, contract_id]);
+    return rows[0];
+  },
+
+  activateContract: async (contract_id) => {
+    const query = `
+      UPDATE contracts 
+      SET status = 'active', updated_at = NOW()
+      WHERE id = $1 
+      RETURNING *;
+    `;
+    const { rows } = await pool.query(query, [contract_id]);
     return rows[0];
   },
 

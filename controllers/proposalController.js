@@ -1,13 +1,14 @@
 import { body, validationResult } from "express-validator";
 import Proposal from "../models/proposalModel.js";
 import pool from "../config/db.js";
+import { notifyBuyerProposalReceived, notifyExpertProposalDeclined } from "./notificationController.js";
 
 // Validation middleware
 export const validateProposal = [
   body("project_id").isUUID().withMessage("Valid project ID is required"),
   body("engagement_model")
-    .isIn(["daily", "sprint", "fixed"])
-    .withMessage("Engagement model must be daily, sprint, or fixed"),
+    .isIn(["daily", "sprint", "fixed", "hourly"])
+    .withMessage("Engagement model must be daily, sprint, fixed, or hourly"),
   body("rate")
     .isFloat({ min: 0 })
     .withMessage("Rate must be a positive number"),
@@ -18,6 +19,7 @@ export const validateProposal = [
     .isFloat({ min: 0 })
     .withMessage("Quote amount must be positive"),
   body("message").optional().trim(),
+  body("estimated_hours").optional().isInt({ min: 1 }).withMessage("Estimated hours must be at least 1"),
 ];
 
 // Create a new proposal
@@ -35,6 +37,7 @@ export const createProposal = async (req, res) => {
       rate,
       duration_days,
       sprint_count,
+      estimated_hours,
       quote_amount,
       message,
     } = req.body;
@@ -60,6 +63,15 @@ export const createProposal = async (req, res) => {
       });
     }
 
+    // Validate estimated_hours for hourly model
+    if (engagement_model === "hourly" && (!estimated_hours || estimated_hours < 1)) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "Estimated hours is required and must be at least 1 for hourly model",
+      });
+    }
+
     // Create proposal using expert_profile_id
     const proposal = await Proposal.create({
       project_id,
@@ -68,9 +80,29 @@ export const createProposal = async (req, res) => {
       rate,
       duration_days,
       sprint_count: sprint_count || null,
+      estimated_hours: estimated_hours || null,
       quote_amount,
       message,
     });
+
+    // Notify buyer about new proposal
+    try {
+      const { rows: projectRows } = await pool.query(
+        `SELECT p.title, p.buyer_profile_id, u.first_name, u.last_name
+         FROM projects p
+         JOIN profiles prof ON prof.id = $1
+         JOIN user_accounts u ON u.id = prof.user_id
+         WHERE p.id = $2`,
+        [expertProfileId, project_id]
+      );
+      if (projectRows.length > 0) {
+        const { title, buyer_profile_id, first_name, last_name } = projectRows[0];
+        const expertName = `${first_name} ${last_name}`.trim();
+        await notifyBuyerProposalReceived(buyer_profile_id, expertName, title, project_id);
+      }
+    } catch (notifyErr) {
+      console.error('Failed to send proposal notification:', notifyErr);
+    }
 
     res.status(201).json({
       success: true,
@@ -298,6 +330,23 @@ export const rejectProposal = async (req, res) => {
       `UPDATE proposals SET status = 'rejected', updated_at = NOW() WHERE id = $1`,
       [proposalId]
     );
+
+    // Notify expert about rejection
+    try {
+      const { rows: projectRows } = await pool.query(
+        `SELECT title FROM projects WHERE id = $1`,
+        [proposal.project_id]
+      );
+      if (projectRows.length > 0) {
+        await notifyExpertProposalDeclined(
+          proposal.expert_profile_id,
+          projectRows[0].title,
+          proposal.project_id
+        );
+      }
+    } catch (notifyErr) {
+      console.error('Failed to send rejection notification:', notifyErr);
+    }
 
     res.status(200).json({
       success: true,

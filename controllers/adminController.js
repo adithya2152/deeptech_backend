@@ -2,6 +2,7 @@ import AdminModel from "../models/adminModel.js";
 import pool from "../config/db.js";
 import jwt from 'jsonwebtoken';
 import { sendEmail } from '../services/mailer.js';
+import { getSignedUrl } from '../utils/storage.js';
 
 export const requireAdmin = async (req, res, next) => {
   try {
@@ -71,6 +72,34 @@ export const getUserContracts = async (req, res) => {
   } catch (e) { res.status(500).json({ success: false, error: e.message }); }
 };
 
+export const getProfileContracts = async (req, res) => {
+  try {
+    const { profileId } = req.params;
+    const { side } = req.query;
+
+    const normalizedSide = side ? String(side).toLowerCase() : 'all';
+    const allowed = new Set(['buyer', 'expert', 'all']);
+    if (!allowed.has(normalizedSide)) {
+      return res.status(400).json({ success: false, message: "Invalid 'side'. Use buyer|expert|all" });
+    }
+
+    const contracts = await AdminModel.getProfileContracts(profileId, normalizedSide);
+    res.json({ success: true, data: contracts });
+  } catch (e) {
+    res.status(500).json({ success: false, error: e.message });
+  }
+};
+
+export const getUserProjects = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const projects = await AdminModel.getUserProjects(id);
+    res.json({ success: true, data: projects });
+  } catch (e) {
+    res.status(500).json({ success: false, error: e.message });
+  }
+};
+
 export const getProjects = async (req, res) => {
   try {
     const projects = await AdminModel.getProjects();
@@ -94,7 +123,14 @@ export const getDisputes = async (req, res) => {
 
 export const getReports = async (req, res) => {
   try {
-    const reports = await AdminModel.getReports();
+    const { status } = req.query;
+    const allowedStatuses = new Set(['pending', 'reviewed', 'resolved', 'dismissed', 'all']);
+
+    if (status && !allowedStatuses.has(String(status))) {
+      return res.status(400).json({ success: false, message: 'Invalid status filter' });
+    }
+
+    const reports = await AdminModel.getReports({ status: status ? String(status) : null });
     res.json({ success: true, data: reports });
   } catch (e) { res.status(500).json({ success: false, error: e.message }); }
 };
@@ -168,10 +204,17 @@ export const verifyExpert = async (req, res) => {
 export const updateExpertStatus = async (req, res) => {
   try {
     const { id } = req.params;
-    const { expert_status, vetting_level } = req.body || {};
+    const { expert_status, vetting_level, tier_name, tier_level } = req.body || {};
 
     const allowedExpertStatuses = new Set(['incomplete', 'pending_review', 'rookie', 'verified', 'rejected']);
     const allowedVettingLevels = new Set(['general', 'advanced', 'deep_tech_verified']);
+
+    const hasTierName = typeof tier_name !== 'undefined' && tier_name !== null;
+    const hasTierLevel = typeof tier_level !== 'undefined' && tier_level !== null;
+
+    if (hasTierName !== hasTierLevel) {
+      return res.status(400).json({ success: false, message: 'tier_name and tier_level must be provided together' });
+    }
 
     if (expert_status && !allowedExpertStatuses.has(expert_status)) {
       return res.status(400).json({ success: false, message: 'Invalid expert_status' });
@@ -180,12 +223,45 @@ export const updateExpertStatus = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Invalid vetting_level' });
     }
 
-    const updated = await AdminModel.updateExpertAdminFields(id, { expert_status: expert_status || null, vetting_level: vetting_level || null });
-    if (!updated) {
-      return res.status(404).json({ success: false, message: 'Expert profile not found for this user' });
+    if (hasTierName) {
+      const name = String(tier_name || '').trim();
+      const level = Number(tier_level);
+      if (!name) {
+        return res.status(400).json({ success: false, message: 'Invalid tier_name' });
+      }
+      if (!Number.isInteger(level) || level < 1 || level > 10) {
+        return res.status(400).json({ success: false, message: 'Invalid tier_level (must be integer 1-10)' });
+      }
     }
 
-    res.json({ success: true, message: 'Expert updated successfully', data: updated });
+    if (!expert_status && !vetting_level && !hasTierName) {
+      return res.status(400).json({ success: false, message: 'No fields provided' });
+    }
+
+    let updatedExpert = null;
+    if (expert_status || vetting_level) {
+      updatedExpert = await AdminModel.updateExpertAdminFields(id, {
+        expert_status: expert_status || null,
+        vetting_level: vetting_level || null,
+      });
+      if (!updatedExpert) {
+        return res.status(404).json({ success: false, message: 'Expert profile not found for this user' });
+      }
+    }
+
+    let updatedTier = null;
+    if (hasTierName) {
+      updatedTier = await AdminModel.upsertUserRankTier(id, {
+        tier_name,
+        tier_level,
+      });
+    }
+
+    res.json({
+      success: true,
+      message: 'Expert updated successfully',
+      data: { expert: updatedExpert, tier: updatedTier },
+    });
   } catch (e) {
     res.status(500).json({ success: false, error: e.message });
   }
@@ -315,8 +391,138 @@ export const inviteAdmin = async (req, res) => {
   }
 };
 
+
+export const getDocumentSignedUrl = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const { rows } = await pool.query(
+      `SELECT id, document_type, url, is_public FROM expert_documents WHERE id = $1`,
+      [id]
+    );
+
+    if (!rows.length) {
+      return res.status(404).json({ success: false, message: 'Document not found' });
+    }
+
+    const doc = rows[0];
+    const url = doc.url;
+
+    if (!url) {
+      return res.status(404).json({ success: false, message: 'Document has no URL' });
+    }
+
+    // If it already looks like a public URL, just return it.
+    if (/^https?:\/\//i.test(url)) {
+      return res.json({ success: true, data: { url } });
+    }
+
+    // Otherwise treat it as a storage path and sign it.
+    const type = String(doc.document_type || '').toLowerCase();
+    const bucket = type === 'resume' ? 'expert-private-documents' : 'expert-public-documents';
+    const signedUrl = await getSignedUrl(bucket, url, 60 * 10); // 10 minutes
+
+    return res.json({ success: true, data: { url: signedUrl } });
+  } catch (e) {
+    console.error('[getDocumentSignedUrl] Error:', e);
+    return res.status(500).json({ success: false, message: e.message || 'Failed to generate link' });
+  }
+};
+
+/**
+ * Get circumvention analytics - contact sharing attempts
+ */
+export const getCircumventionAnalytics = async (req, res) => {
+  try {
+    const { days = 30, limit = 50 } = req.query;
+    const daysNum = parseInt(days) || 30;
+    const limitNum = parseInt(limit) || 50;
+
+    // Get overall stats
+    const statsResult = await pool.query(`
+      SELECT 
+        COUNT(*) as total_attempts,
+        COUNT(DISTINCT user_id) as unique_users,
+        COUNT(CASE WHEN detected_type = 'email' THEN 1 END) as email_attempts,
+        COUNT(CASE WHEN detected_type = 'phone' THEN 1 END) as phone_attempts,
+        COUNT(CASE WHEN detected_type = 'social_media' THEN 1 END) as social_media_attempts,
+        COUNT(CASE WHEN detected_type = 'external_link' THEN 1 END) as link_attempts
+      FROM circumvention_logs
+      WHERE created_at >= NOW() - INTERVAL '${daysNum} days'
+    `);
+
+    // Get daily trend
+    const trendResult = await pool.query(`
+      SELECT 
+        DATE(created_at) as date,
+        COUNT(*) as count
+      FROM circumvention_logs
+      WHERE created_at >= NOW() - INTERVAL '${daysNum} days'
+      GROUP BY DATE(created_at)
+      ORDER BY date ASC
+    `);
+
+    // Get top users with attempts
+    const topUsersResult = await pool.query(`
+      SELECT 
+        cl.user_id,
+        ua.email,
+        ua.first_name,
+        ua.last_name,
+        COUNT(*) as attempt_count,
+        MAX(cl.created_at) as last_attempt
+      FROM circumvention_logs cl
+      LEFT JOIN user_accounts ua ON cl.user_id = ua.id
+      WHERE cl.created_at >= NOW() - INTERVAL '${daysNum} days'
+      GROUP BY cl.user_id, ua.email, ua.first_name, ua.last_name
+      ORDER BY attempt_count DESC
+      LIMIT 10
+    `);
+
+    // Get recent attempts
+    const recentResult = await pool.query(`
+      SELECT 
+        cl.*,
+        ua.email as user_email,
+        ua.first_name,
+        ua.last_name
+      FROM circumvention_logs cl
+      LEFT JOIN user_accounts ua ON cl.user_id = ua.id
+      ORDER BY cl.created_at DESC
+      LIMIT $1
+    `, [limitNum]);
+
+    res.json({
+      success: true,
+      data: {
+        stats: statsResult.rows[0] || {},
+        trend: trendResult.rows,
+        topUsers: topUsersResult.rows,
+        recentAttempts: recentResult.rows,
+      },
+    });
+  } catch (e) {
+    // If table doesn't exist, return empty data
+    if (e.code === '42P01') {
+      return res.json({
+        success: true,
+        data: {
+          stats: { total_attempts: 0, unique_users: 0 },
+          trend: [],
+          topUsers: [],
+          recentAttempts: [],
+        },
+        message: 'Circumvention logging table not yet created',
+      });
+    }
+    console.error('[getCircumventionAnalytics] Error:', e);
+    res.status(500).json({ success: false, error: e.message });
+  }
+};
+
 export default {
   requireAdmin,
-  getStats, getUsers, getUserById, getUserContracts, getProjects, getContracts, getDisputes, getReports, getPayouts, getInvoices, getEarningsAnalytics,
-  banUser, unbanUser, verifyExpert, updateExpertStatus, approveProject, rejectProject, resolveDispute, closeDispute, actionReport, processPayout, inviteAdmin
+  getStats, getUsers, getUserById, getUserContracts, getProfileContracts, getProjects, getUserProjects, getContracts, getDisputes, getReports, getPayouts, getInvoices, getEarningsAnalytics,
+  banUser, unbanUser, verifyExpert, updateExpertStatus, approveProject, rejectProject, resolveDispute, closeDispute, actionReport, processPayout, inviteAdmin, getDocumentSignedUrl,
+  getCircumventionAnalytics
 };

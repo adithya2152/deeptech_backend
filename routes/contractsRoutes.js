@@ -21,6 +21,27 @@ router.post(
   contractController.acceptAndSignNda
 );
 
+router.post(
+  "/:contractId/sign-contract",
+  auth,
+  contractController.signContract
+);
+
+router.post(
+  "/:contractId/sign-nda",
+  auth,
+  requireRole("expert"),
+  contractController.validateNdaSigning,
+  contractController.signNda
+);
+
+router.post(
+  "/:contractId/activate",
+  auth,
+  // Accessible to both, logic handles permission/state check
+  contractController.activateContract
+);
+
 router.patch(
   "/:contractId/nda",
   auth,
