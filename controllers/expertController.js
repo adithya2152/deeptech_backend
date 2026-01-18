@@ -36,14 +36,27 @@ export const semanticSearch = async (req, res) => {
 
     const results = (response.results || []).map(e => ({
       id: e.id,
+      expert_profile_id: e.expertProfileId,
+      profile_id: e.profileId,
+      user_id: e.userId,
+      first_name: e.firstName,
+      last_name: e.lastName,
       name: e.name || '',
+      avatar_url: e.avatarUrl,
       experience_summary: e.bio || '',
       domains: e.domains || [],
       skills: e.skills || [],
+      avg_daily_rate: e.expertRates?.avgDailyRate || 0,
+      avg_fixed_rate: e.expertRates?.avgFixedRate || 0,
+      avg_sprint_rate: e.expertRates?.avgSprintRate || 0,
+      expert_status: e.expertStatus,
+      vetting_level: e.vettingLevel,
       rating: e.rating,
-      review_count: e.review_count,
-      total_hours: e.total_hours,
-      availability_status: e.availability,
+      review_count: e.reviewCount,
+      total_hours: e.totalHours,
+      availability_status: e.availabilityStatus,
+      years_experience: e.yearsExperience,
+      similarity_score: e.similarityScore,
     }));
 
     res.json({
@@ -146,6 +159,12 @@ export const updateExpertProfile = async (req, res) => {
 
     /* experts table - use expert_profile_id */
     const updatedExpert = await expertModel.updateExpertById(expert.expert_profile_id, req.body);
+
+    // ✅ Trigger embedding generation asynchronously (non-blocking)
+    generateEmbeddingAsync(expert.expert_profile_id).catch(err => {
+      console.error('Failed to generate embedding:', err);
+      // Don't fail the request if embedding generation fails
+    });
 
     res.json({
       success: true,
@@ -351,6 +370,35 @@ async function callSemanticSearchService(query, limit) {
     }
   );
   return res.json();
+}
+
+/**
+ * Generate embedding for expert asynchronously
+ * Called after profile updates to keep semantic search current
+ */
+async function generateEmbeddingAsync(expertProfileId) {
+  try {
+    console.log(`🔄 Generating embedding for expert: ${expertProfileId}`);
+
+    const response = await fetch(
+      `${process.env.PYTHON_SEMANTIC_SEARCH_URL}/experts/${expertProfileId}/embedding`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      }
+    );
+
+    if (!response.ok) {
+      throw new Error(`Embedding generation failed: ${response.status}`);
+    }
+
+    const result = await response.json();
+    console.log(`✅ Embedding generated for expert: ${expertProfileId}`);
+    return result;
+  } catch (error) {
+    console.error(`❌ Embedding generation error for ${expertProfileId}:`, error.message);
+    throw error;
+  }
 }
 
 export default {

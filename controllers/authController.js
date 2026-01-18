@@ -214,6 +214,16 @@ export const register = async (req, res) => {
           `Expert in ${expertDomains.join(', ') || 'deep-tech'} ready for projects`
         ]
       );
+
+      // ✅ Generate embedding for new expert (async, non-blocking)
+      generateEmbeddingAsync(profile.id).catch(err => {
+        console.error('Failed to generate embedding for new expert:', err.message);
+      });
+
+      // ✅ Generate embedding for new expert (async, non-blocking)
+      generateEmbeddingAsync(profile.id).catch(err => {
+        console.error('Failed to generate embedding for new expert:', err.message);
+      });
     } else if (role === 'buyer') {
       await pool.query(
         `INSERT INTO buyers (id, buyer_profile_id, is_active) VALUES ($1, $2, true)
@@ -754,6 +764,16 @@ export const switchRole = async (req, res) => {
            ON CONFLICT (expert_profile_id) DO NOTHING`,
           [userId, newRoleProfile.id, [], "New expert profile"]
         );
+
+        // ✅ Generate embedding for new expert profile (async, non-blocking)
+        generateEmbeddingAsync(newRoleProfile.id).catch(err => {
+          console.error('Failed to generate embedding for role switch:', err.message);
+        });
+
+        // ✅ Generate embedding for new expert profile (async, non-blocking)
+        generateEmbeddingAsync(newRoleProfile.id).catch(err => {
+          console.error('Failed to generate embedding for role switch:', err.message);
+        });
       } else if (newRole === 'buyer') {
         await pool.query(
           `INSERT INTO buyers (id, buyer_profile_id, is_active)
@@ -795,3 +815,36 @@ export const switchRole = async (req, res) => {
     });
   }
 };
+
+/**
+ * Generate embedding for expert asynchronously
+ * Called after profile creation/updates to keep semantic search current
+ */
+async function generateEmbeddingAsync(expertProfileId) {
+  try {
+    const semanticSearchUrl = process.env.PYTHON_SEMANTIC_SEARCH_URL;
+    if (!semanticSearchUrl) {
+      console.warn('⚠️  PYTHON_SEMANTIC_SEARCH_URL not configured, skipping embedding generation');
+      return;
+    }
+
+    console.log(`🔄 Generating embedding for expert: ${expertProfileId}`);
+
+    const response = await fetch(
+      `${semanticSearchUrl}/experts/${expertProfileId}/embedding`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      }
+    );
+
+    if (!response.ok) {
+      throw new Error(`Embedding generation failed: ${response.status}`);
+    }
+
+    console.log(`✅ Embedding generated for expert: ${expertProfileId}`);
+  } catch (error) {
+    console.error(`❌ Embedding generation error for ${expertProfileId}:`, error.message);
+    throw error;
+  }
+}
