@@ -10,6 +10,7 @@ const Proposal = {
       rate,
       duration_days,
       sprint_count,
+      estimated_hours,
       quote_amount,
       message,
     } = data;
@@ -20,6 +21,7 @@ const Proposal = {
     SELECT *
     FROM proposals
     WHERE project_id = $1 AND expert_profile_id = $2
+    ORDER BY created_at DESC
     LIMIT 1
     `,
       [project_id, expert_profile_id]
@@ -28,20 +30,29 @@ const Proposal = {
     const existing = existingRes.rows[0];
 
     if (existing) {
-      // 2) Update existing proposal instead of inserting a new one
+      if (existing.status !== 'rejected') {
+        const err = new Error(
+          `You already have a ${existing.status} proposal for this project.`
+        );
+        err.statusCode = 409;
+        throw err;
+      }
+
       const updateRes = await pool.query(
         `
-      UPDATE proposals 
-      SET 
+      UPDATE proposals
+      SET
         engagement_model = $1,
         rate = $2,
         duration_days = $3,
         sprint_count = $4,
-        quote_amount = $5,
-        message = $6,
+        estimated_hours = $5,
+        quote_amount = $6,
+        message = $7,
         status = 'pending',
+        created_at = NOW(),
         updated_at = NOW()
-      WHERE id = $7
+      WHERE id = $8
       RETURNING *;
       `,
         [
@@ -49,6 +60,7 @@ const Proposal = {
           rate,
           duration_days,
           sprint_count,
+          estimated_hours,
           quote_amount,
           message,
           existing.id,
@@ -66,13 +78,14 @@ const Proposal = {
       rate,
       duration_days,
       sprint_count,
+      estimated_hours,
       quote_amount,
       message,
       status,
       created_at,
       updated_at
     )
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'pending', NOW(), NOW())
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'pending', NOW(), NOW())
     RETURNING *;
   `;
 
@@ -83,6 +96,7 @@ const Proposal = {
       rate,
       duration_days,
       sprint_count,
+      estimated_hours,
       quote_amount,
       message,
     ];
@@ -118,8 +132,13 @@ const Proposal = {
       JOIN profiles prof ON p.expert_profile_id = prof.id
       JOIN user_accounts u ON prof.user_id = u.id
       WHERE p.project_id = $1
-        AND p.status = 'pending'
-      ORDER BY p.created_at DESC
+      ORDER BY
+        CASE
+          WHEN p.status = 'pending' THEN 0
+          WHEN p.status = 'accepted' THEN 1
+          ELSE 2
+        END,
+        p.created_at DESC
     `;
     const { rows } = await pool.query(query, [project_id]);
     return rows;

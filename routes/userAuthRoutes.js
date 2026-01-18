@@ -12,8 +12,10 @@ import {
   resetPasswordWithRecoveryTokens,
   uploadProfileMedia,
   switchRole,
+  acceptAdminInvite,
   getCurrentUser,
-  updateCurrentUser
+  updateCurrentUser,
+  deleteAccount
 } from "../controllers/authController.js";
 import multer from "multer";
 
@@ -107,5 +109,9 @@ router.post(
 );
 
 router.post("/switch-role", auth, switchRole);
+
+router.post("/accept-admin-invite", auth, acceptAdminInvite);
+
+router.delete("/account", auth, deleteAccount);
 
 export default router;

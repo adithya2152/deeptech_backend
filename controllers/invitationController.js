@@ -6,6 +6,44 @@ export const invitationController = {
     const buyerProfileId = req.user.profileId;
 
     try {
+      const allowedModels = new Set(['daily', 'sprint', 'fixed', 'hourly']);
+      const model = String(engagement_model || 'daily');
+      if (!allowedModels.has(model)) {
+        return res.status(400).json({ success: false, message: 'Invalid engagement_model' });
+      }
+
+      const terms = payment_terms && typeof payment_terms === 'object' ? payment_terms : {};
+      const num = (v) => Number(v);
+      const isNonNegative = (n) => Number.isFinite(n) && n >= 0;
+      const isPositive = (n) => Number.isFinite(n) && n > 0;
+
+      const rejectTerms = (msg) => res.status(400).json({ success: false, message: msg });
+
+      if (model === 'daily') {
+        const rate = num(terms.daily_rate);
+        const days = num(terms.total_days);
+        if (!isNonNegative(rate) || !isNonNegative(days)) return rejectTerms('Daily terms cannot be negative.');
+        if (!isPositive(rate) || !isPositive(days)) return rejectTerms('Daily rate and total days must be greater than 0.');
+      }
+      if (model === 'sprint') {
+        const rate = num(terms.sprint_rate);
+        const sprints = num(terms.total_sprints);
+        const duration = num(terms.sprint_duration_days);
+        if (!isNonNegative(rate) || !isNonNegative(sprints) || !isNonNegative(duration)) return rejectTerms('Sprint terms cannot be negative.');
+        if (!isPositive(rate) || !isPositive(sprints) || !isPositive(duration)) return rejectTerms('Sprint rate, total sprints, and duration must be greater than 0.');
+      }
+      if (model === 'fixed') {
+        const total = num(terms.total_amount);
+        if (!isNonNegative(total)) return rejectTerms('Fixed amount cannot be negative.');
+        if (!isPositive(total)) return rejectTerms('Fixed amount must be greater than 0.');
+      }
+      if (model === 'hourly') {
+        const rate = num(terms.hourly_rate);
+        const hours = num(terms.estimated_hours);
+        if (!isNonNegative(rate) || !isNonNegative(hours)) return rejectTerms('Hourly terms cannot be negative.');
+        if (!isPositive(rate) || !isPositive(hours)) return rejectTerms('Hourly rate and estimated hours must be greater than 0.');
+      }
+
       const isOwner = await Invitation.verifyProjectOwnership(project_id, buyerProfileId);
       if (!isOwner) {
         return res.status(403).json({ success: false, message: 'Unauthorized: Project does not belong to you.' });
@@ -16,7 +54,7 @@ export const invitationController = {
         return res.status(400).json({ success: false, message: 'Invitation already pending.' });
       }
 
-      const invitation = await Invitation.create(project_id, expert_profile_id, message, engagement_model, payment_terms);
+      const invitation = await Invitation.create(project_id, expert_profile_id, message, model, terms);
       res.json({ success: true, data: invitation });
     } catch (err) {
       console.error('Error sending invitation:', err);

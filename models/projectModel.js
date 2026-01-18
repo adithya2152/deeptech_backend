@@ -1,12 +1,24 @@
 import pool from '../config/db.js';
 
 const Project = {
-  getMarketplaceProjects: async (buyerProfileId = null) => {
+  getMarketplaceProjects: async (buyerProfileId = null, viewerExpertProfileId = null) => {
     const params = [];
     const where = ["p.status IN ('open', 'active')"];
     if (buyerProfileId) {
       params.push(buyerProfileId);
       where.push(`p.buyer_profile_id = $${params.length}`);
+    }
+
+    let myProposalSelect = `NULL::text as my_proposal_status`;
+    if (viewerExpertProfileId) {
+      params.push(viewerExpertProfileId);
+      myProposalSelect = `(
+        SELECT pr.status
+        FROM proposals pr
+        WHERE pr.project_id = p.id AND pr.expert_profile_id = $${params.length}
+        ORDER BY pr.created_at DESC
+        LIMIT 1
+      ) as my_proposal_status`;
     }
 
     const query = `
@@ -17,10 +29,26 @@ const Project = {
              b.billing_country as buyer_location,
              COALESCE(fb.rating, 0) as buyer_rating,
              COALESCE(fb.review_count, 0) as buyer_review_count,
-             COALESCE(b.total_spent, 0) as buyer_total_spent,
-             COALESCE(b.projects_posted, 0) as buyer_projects_posted,
+             (
+               SELECT COALESCE(SUM(i.amount), 0)
+               FROM invoices i
+               WHERE i.buyer_profile_id = p.buyer_profile_id
+                 AND i.status = 'paid'
+             ) as buyer_total_spent,
+             (
+               SELECT COUNT(*)
+               FROM projects p2
+               WHERE p2.buyer_profile_id = p.buyer_profile_id
+             )::int as buyer_projects_posted,
+             (
+               SELECT COUNT(*)
+               FROM contracts c2
+               WHERE c2.buyer_profile_id = p.buyer_profile_id
+                 AND c2.status NOT IN ('declined')
+             )::int as buyer_contracts_count,
              COALESCE(b.verified, false) as buyer_verified,
-             (SELECT COUNT(*) FROM proposals WHERE project_id = p.id) as proposal_count
+             (SELECT COUNT(*) FROM proposals WHERE project_id = p.id) as proposal_count,
+             ${myProposalSelect}
       FROM projects p
       JOIN profiles bp ON p.buyer_profile_id = bp.id
       JOIN user_accounts u ON bp.user_id = u.id
@@ -43,15 +71,37 @@ const Project = {
 
   getProjectsByClient: async (profileId, role, status = null) => {
     if (role === 'buyer') {
-      let sql = `SELECT * FROM projects WHERE buyer_profile_id = $1`;
+      let sql = `
+        SELECT
+          p.*,
+          (SELECT COUNT(*) FROM proposals WHERE project_id = p.id) as proposal_count,
+          (
+            SELECT c.id
+            FROM contracts c
+            WHERE c.project_id = p.id
+              AND c.status IN ('pending', 'active', 'paused')
+            ORDER BY c.created_at DESC
+            LIMIT 1
+          ) as active_contract_id,
+          (
+            SELECT c.status
+            FROM contracts c
+            WHERE c.project_id = p.id
+              AND c.status IN ('pending', 'active', 'paused')
+            ORDER BY c.created_at DESC
+            LIMIT 1
+          ) as active_contract_status
+        FROM projects p
+        WHERE p.buyer_profile_id = $1
+      `;
       const params = [profileId];
 
       if (status && status !== 'all') {
-        sql += ` AND status = $2`;
+        sql += ` AND p.status = $2`;
         params.push(status);
       }
 
-      sql += ` ORDER BY created_at DESC`;
+      sql += ` ORDER BY p.created_at DESC`;
       const { rows } = await pool.query(sql, params);
       return rows;
     }
@@ -78,7 +128,20 @@ const Project = {
     return [];
   },
 
-  getById: async (id) => {
+  getById: async (id, viewerExpertProfileId = null) => {
+    const params = [id];
+    let myProposalSelect = `NULL::text as my_proposal_status`;
+    if (viewerExpertProfileId) {
+      params.push(viewerExpertProfileId);
+      myProposalSelect = `(
+        SELECT pr.status
+        FROM proposals pr
+        WHERE pr.project_id = p.id AND pr.expert_profile_id = $${params.length}
+        ORDER BY pr.created_at DESC
+        LIMIT 1
+      ) as my_proposal_status`;
+    }
+
     const sql = `
       SELECT 
         p.*, 
@@ -90,9 +153,29 @@ const Project = {
         COALESCE(fb.rating, 0) as buyer_rating,
         COALESCE(fb.review_count, 0) as buyer_review_count,
         COALESCE(b.verified, false) as buyer_verified,
-        COALESCE(b.projects_posted, 0) as buyer_projects_posted,
-        COALESCE(b.total_spent, 0) as buyer_total_spent,
-        COALESCE(b.hires_made, 0) as buyer_hires_made,
+        (
+          SELECT COUNT(*)
+          FROM projects p2
+          WHERE p2.buyer_profile_id = p.buyer_profile_id
+        )::int as buyer_projects_posted,
+        (
+          SELECT COALESCE(SUM(i.amount), 0)
+          FROM invoices i
+          WHERE i.buyer_profile_id = p.buyer_profile_id
+            AND i.status = 'paid'
+        ) as buyer_total_spent,
+        (
+          SELECT COUNT(*)
+          FROM contracts c2
+          WHERE c2.buyer_profile_id = p.buyer_profile_id
+            AND c2.status NOT IN ('declined')
+        )::int as buyer_contracts_count,
+        (
+          SELECT COUNT(*)
+          FROM contracts c2
+          WHERE c2.buyer_profile_id = p.buyer_profile_id
+            AND c2.status NOT IN ('declined')
+        )::int as buyer_hires_made,
         b.billing_country as buyer_location,
         (SELECT COUNT(*) FROM proposals WHERE project_id = p.id) as proposal_count,
         (SELECT json_build_object(
@@ -100,6 +183,7 @@ const Project = {
           'min_rate', COALESCE(MIN(COALESCE(rate, quote_amount)), 0),
           'max_rate', COALESCE(MAX(COALESCE(rate, quote_amount)), 0)
         ) FROM proposals WHERE project_id = p.id) as proposal_stats,
+        ${myProposalSelect},
         json_build_object(
           'id', bp.id, 
           'user_id', u.id,
@@ -114,9 +198,29 @@ const Project = {
           'verified', COALESCE(b.verified, false),
           'verified_payment', COALESCE(b.verified, false),
           'verified_email', COALESCE(u.email_verified, false),
-          'projects_posted', COALESCE(b.projects_posted, 0),
-          'hires_made', COALESCE(b.hires_made, 0),
-          'total_spent', COALESCE(b.total_spent, 0),
+          'projects_posted', (
+            SELECT COUNT(*)
+            FROM projects p2
+            WHERE p2.buyer_profile_id = p.buyer_profile_id
+          )::int,
+          'contracts_count', (
+            SELECT COUNT(*)
+            FROM contracts c2
+            WHERE c2.buyer_profile_id = p.buyer_profile_id
+              AND c2.status NOT IN ('declined')
+          )::int,
+          'hires_made', (
+            SELECT COUNT(*)
+            FROM contracts c2
+            WHERE c2.buyer_profile_id = p.buyer_profile_id
+              AND c2.status NOT IN ('declined')
+          )::int,
+          'total_spent', (
+            SELECT COALESCE(SUM(i.amount), 0)
+            FROM invoices i
+            WHERE i.buyer_profile_id = p.buyer_profile_id
+              AND i.status = 'paid'
+          ),
           'company_name', b.company_name
         ) as buyer
       FROM projects p
@@ -134,7 +238,7 @@ const Project = {
       ) fb ON fb.receiver_id = p.buyer_profile_id
       WHERE p.id = $1;
     `;
-    const { rows } = await pool.query(sql, [id]);
+    const { rows } = await pool.query(sql, params);
     return rows[0];
   },
 

@@ -104,17 +104,16 @@ export const getBuyerStats = async (req, res) => {
     `, [buyerProfileId]);
     const projectsPosted = parseInt(projectRows[0].count) || 0;
 
-    // Calculate hires made from contracts that reached active/completed status
-    const { rows: hireRows } = await pool.query(`
-      SELECT COUNT(DISTINCT expert_profile_id) AS count
+    // Hire rate (per product definition): (number of contracts / number of projects) * 100
+    const { rows: contractRows } = await pool.query(`
+      SELECT COUNT(*) AS count
       FROM contracts
       WHERE buyer_profile_id = $1
-        AND status IN ('active', 'completed')
+        AND status NOT IN ('declined')
     `, [buyerProfileId]);
-    const hiresMade = parseInt(hireRows[0].count) || 0;
+    const contractsCount = parseInt(contractRows[0].count) || 0;
 
-    // Cap hire rate at 100%
-    const hireRate = projectsPosted > 0 ? Math.min(100, Math.round((hiresMade / projectsPosted) * 100)) : 0;
+    const hireRate = projectsPosted > 0 ? Math.round((contractsCount / projectsPosted) * 100) : 0;
 
     return res.json({
       data: {
