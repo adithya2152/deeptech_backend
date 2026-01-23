@@ -361,6 +361,49 @@ async function generateEmbeddingAsync(expertProfileId) {
   }
 }
 
+/* =========================
+   GET RECOMMENDED PROJECTS
+========================= */
+export const getRecommendedProjects = async (req, res) => {
+  try {
+    const expertId = req.params.id;
+    const { limit = 6 } = req.query;
+
+    // 1. Get Expert Data to find the expert_profile_id
+    const expert = await expertModel.getExpertById(expertId);
+    if (!expert) {
+        return res.status(404).json({ message: 'Expert not found' });
+    }
+    
+    // Ensure we have the UUID profile ID
+    const expertProfileId = expert.expert_profile_id; 
+
+    // 2. Call the Python Microservice
+    // Note: The Python endpoint is GET /projects/recommended?expert_profile_id=...
+    const pythonUrl = new URL(`${process.env.PYTHON_SEMANTIC_SEARCH_URL}/projects/recommended`);
+    pythonUrl.searchParams.append('expert_profile_id', expertProfileId);
+    pythonUrl.searchParams.append('limit', limit);
+
+    const response = await fetch(pythonUrl, {
+      method: 'GET',
+      headers: { 'Content-Type': 'application/json' },
+    });
+
+    if (!response.ok) {
+      console.error(`Python service error: ${response.status}`);
+      // Return empty results rather than crashing if the AI service is down
+      return res.json({ success: true, data: { results: [], totalResults: 0 } });
+    }
+
+    const result = await response.json();
+    
+    res.json({ success: true, data: result });
+  } catch (err) {
+    console.error("Project Recommendation Error:", err);
+    res.status(500).json({ message: 'Failed to fetch recommendations' });
+  }
+};
+
 export default {
   searchExperts,
   semanticSearch,
@@ -370,4 +413,5 @@ export default {
   uploadExpertDocument,
   deleteExpertDocument,
   getDashboardStats,
+  getRecommendedProjects
 };
