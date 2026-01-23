@@ -335,7 +335,7 @@ export const login = async (req, res) => {
     // Query user_accounts for user data
     const result = await pool.query(
       `SELECT id, email, first_name, last_name, role, avatar_url, banner_url, 
-              profile_completion, is_banned, ban_reason, preferred_language, settings
+              profile_completion, is_banned, ban_reason, preferred_language 
        FROM user_accounts WHERE id = $1`,
       [userId],
     );
@@ -390,7 +390,6 @@ export const login = async (req, res) => {
           banner_url: user.banner_url,
           profile_completion: user.profile_completion,
           preferred_language: user.preferred_language,
-          settings: user.settings
         },
         tokens: {
           accessToken,
@@ -645,8 +644,8 @@ export const getCurrentUser = async (req, res) => {
     }
 
     const result = await pool.query(
-      `SELECT id, email, first_name, last_name, role, avatar_url, banner_url, timezone, preferred_language,
-              profile_completion, created_at, last_login
+      `SELECT id, email, first_name, last_name, role, avatar_url, banner_url, timezone,
+              profile_completion, preferred_language, created_at, last_login
        FROM user_accounts WHERE id = $1`,
       [userId],
     );
@@ -674,7 +673,7 @@ export const getCurrentUser = async (req, res) => {
           avatar_url: user.avatar_url,
           banner_url: user.banner_url,
           timezone: user.timezone,
-          preferred_language: user.preferred_language || 'en',
+          preferred_language: user.preferred_language,
           profile_completion: user.profile_completion,
           created_at: user.created_at,
           last_login: user.last_login,
@@ -701,7 +700,14 @@ export const updateCurrentUser = async (req, res) => {
       });
     }
 
-    const { first_name, last_name, avatar_url, banner_url, timezone } = req.body;
+    const {
+      first_name,
+      last_name,
+      avatar_url,
+      banner_url,
+      timezone,
+      preferred_language,
+    } = req.body;
 
     const result = await pool.query(
       `
@@ -717,7 +723,15 @@ export const updateCurrentUser = async (req, res) => {
       WHERE id = $7
       RETURNING id, email, first_name, last_name, role, avatar_url, banner_url, timezone, preferred_language, created_at
       `,
-      [first_name, last_name, avatar_url, banner_url, timezone, userId]
+      [
+        first_name,
+        last_name,
+        avatar_url,
+        banner_url,
+        timezone,
+        preferred_language,
+        userId,
+      ],
     );
 
     if (result.rows.length === 0) {
@@ -997,7 +1011,7 @@ export const deleteAccount = async (req, res) => {
       // Delete work logs
       await pool.query(
         `DELETE FROM work_logs WHERE contract_id IN (
-        SELECT id FROM contracts WHERE buyer_id = $1 OR expert_id = $1
+        SELECT id FROM contracts WHERE buyer_profile_id IN (SELECT id FROM profiles WHERE user_id = $1) OR expert_profile_id IN (SELECT id FROM profiles WHERE user_id = $1)
       )`,
         [userId],
       );
@@ -1005,7 +1019,7 @@ export const deleteAccount = async (req, res) => {
       // Delete day work summaries
       await pool.query(
         `DELETE FROM day_work_summaries WHERE contract_id IN (
-        SELECT id FROM contracts WHERE buyer_id = $1 OR expert_id = $1
+        SELECT id FROM contracts WHERE buyer_profile_id IN (SELECT id FROM profiles WHERE user_id = $1) OR expert_profile_id IN (SELECT id FROM profiles WHERE user_id = $1)
       )`,
         [userId],
       );
@@ -1013,7 +1027,7 @@ export const deleteAccount = async (req, res) => {
       // Delete disputes
       await pool.query(
         `DELETE FROM disputes WHERE contract_id IN (
-        SELECT id FROM contracts WHERE buyer_id = $1 OR expert_id = $1
+        SELECT id FROM contracts WHERE buyer_profile_id IN (SELECT id FROM profiles WHERE user_id = $1) OR expert_profile_id IN (SELECT id FROM profiles WHERE user_id = $1)
       )`,
         [userId],
       );
@@ -1021,7 +1035,7 @@ export const deleteAccount = async (req, res) => {
       // Delete invoices
       await pool.query(
         `DELETE FROM invoices WHERE contract_id IN (
-        SELECT id FROM contracts WHERE buyer_id = $1 OR expert_id = $1
+        SELECT id FROM contracts WHERE buyer_profile_id IN (SELECT id FROM profiles WHERE user_id = $1) OR expert_profile_id IN (SELECT id FROM profiles WHERE user_id = $1)
       )`,
         [userId],
       );
@@ -1029,7 +1043,7 @@ export const deleteAccount = async (req, res) => {
       // Delete contract documents
       await pool.query(
         `DELETE FROM contract_documents WHERE contract_id IN (
-        SELECT id FROM contracts WHERE buyer_id = $1 OR expert_id = $1
+        SELECT id FROM contracts WHERE buyer_profile_id IN (SELECT id FROM profiles WHERE user_id = $1) OR expert_profile_id IN (SELECT id FROM profiles WHERE user_id = $1)
       )`,
         [userId],
       );
@@ -1037,52 +1051,108 @@ export const deleteAccount = async (req, res) => {
       // Delete time entries
       await pool.query(
         `DELETE FROM time_entries WHERE contract_id IN (
-        SELECT id FROM contracts WHERE buyer_id = $1 OR expert_id = $1
+        SELECT id FROM contracts WHERE buyer_profile_id IN (SELECT id FROM profiles WHERE user_id = $1) OR expert_profile_id IN (SELECT id FROM profiles WHERE user_id = $1)
       )`,
         [userId],
       );
 
+      // Delete feedback (was reviews)
+      // Check column names: contractModel says (contract_id, giver_id, receiver_id)
+      await pool.query(
+        `DELETE FROM feedback WHERE contract_id IN (
+        SELECT id FROM contracts WHERE buyer_profile_id IN (SELECT id FROM profiles WHERE user_id = $1) OR expert_profile_id IN (SELECT id FROM profiles WHERE user_id = $1)
+      ) OR giver_id = $1 OR receiver_id = $1`,
+        [userId],
+      );
+
+      // Delete helpful votes on feedback
+      await pool.query(`DELETE FROM feedback_helpful_votes WHERE voter_id = $1`, [userId]);
+
       // Delete contracts
       await pool.query(
-        `DELETE FROM contracts WHERE buyer_id = $1 OR expert_id = $1`,
+        `DELETE FROM contracts WHERE buyer_profile_id IN (SELECT id FROM profiles WHERE user_id = $1) OR expert_profile_id IN (SELECT id FROM profiles WHERE user_id = $1)`,
         [userId],
       );
 
       // Delete proposals
       await pool.query(
-        `DELETE FROM proposals WHERE expert_id IN (
+        `DELETE FROM proposals WHERE expert_profile_id IN (
         SELECT id FROM profiles WHERE user_id = $1
       )`,
         [userId],
       );
 
+      // Delete expert_documents
+      await pool.query(`DELETE FROM expert_documents WHERE expert_id = $1`, [userId]);
+
       // Delete project invitations
       await pool.query(
-        `DELETE FROM project_invitations WHERE expert_id IN (
+        `DELETE FROM project_invitations WHERE expert_profile_id IN (
         SELECT id FROM profiles WHERE user_id = $1
       ) OR project_id IN (
-        SELECT id FROM projects WHERE buyer_id = $1
+        SELECT id FROM projects WHERE buyer_profile_id IN (SELECT id FROM profiles WHERE user_id = $1)
       )`,
         [userId],
       );
 
       // Delete projects
-      await pool.query(`DELETE FROM projects WHERE buyer_id = $1`, [userId]);
+      await pool.query(`DELETE FROM projects WHERE buyer_profile_id IN (SELECT id FROM profiles WHERE user_id = $1)`, [userId]);
 
-      // Delete messages (soft approach - set sender to null or delete)
+      // Delete message attachments first (FK to messages)
+      await pool.query(`DELETE FROM message_attachments WHERE message_id IN (SELECT id FROM messages WHERE sender_id = $1)`, [userId]);
+
+      // Delete messages
       await pool.query(`DELETE FROM messages WHERE sender_id = $1`, [userId]);
 
-      // Delete conversations the user is part of
+      // Delete chat_members (was conversation_participants)
       await pool.query(
-        `DELETE FROM conversation_participants WHERE user_id = $1`,
+        `DELETE FROM chat_members WHERE user_id = $1`,
         [userId],
       );
 
-      // Delete reviews
-      await pool.query(
-        `DELETE FROM reviews WHERE reviewer_id = $1 OR reviewee_id = $1`,
-        [userId],
-      );
+      // Delete notifications
+      await pool.query(`DELETE FROM notifications WHERE profile_id IN (SELECT id FROM profiles WHERE user_id = $1)`, [userId]);
+
+      // Delete user_preferred_currency
+      await pool.query(`DELETE FROM user_preferred_currency WHERE user_id = $1`, [userId]);
+
+      // Delete answer_votes
+      await pool.query(`DELETE FROM answer_votes WHERE voter_id = $1`, [userId]);
+
+      // Delete blogs
+      await pool.query(`DELETE FROM blogs WHERE author_id = $1`, [userId]);
+
+      // Delete circumvention_logs
+      await pool.query(`DELETE FROM circumvention_logs WHERE user_id = $1`, [userId]);
+
+      // Delete conversations
+      await pool.query(`DELETE FROM conversations WHERE participant_1 = $1 OR participant_2 = $1`, [userId]);
+
+      // Delete doubt_answers
+      await pool.query(`DELETE FROM doubt_answers WHERE user_id = $1`, [userId]);
+
+      // Delete expert_ai_evaluations
+      await pool.query(`
+        DELETE FROM expert_ai_evaluations 
+        WHERE reviewed_by = $1 
+        OR expert_profile_id IN (SELECT id FROM profiles WHERE user_id = $1)
+      `, [userId]);
+
+      // Delete expert_capability_scores
+      await pool.query(`
+        DELETE FROM expert_capability_scores 
+        WHERE reviewed_by = $1 
+        OR expert_profile_id IN (SELECT id FROM profiles WHERE user_id = $1)
+      `, [userId]);
+
+      // Delete reports
+      await pool.query(`DELETE FROM reports WHERE reporter_id = $1 OR reported_id = $1`, [userId]);
+
+      // Delete score_adjustments_log
+      await pool.query(`DELETE FROM score_adjustments_log WHERE user_id = $1 OR admin_id = $1`, [userId]);
+
+      // Delete score_history
+      await pool.query(`DELETE FROM score_history WHERE user_id = $1`, [userId]);
 
       // Delete user scores
       await pool.query(`DELETE FROM user_scores WHERE user_id = $1`, [userId]);
@@ -1096,21 +1166,27 @@ export const deleteAccount = async (req, res) => {
       ]);
 
       // Delete expert profile if exists
-      await pool.query(`DELETE FROM experts WHERE user_id = $1`, [userId]);
+      // experts table uses 'id' as FK to user_accounts
+      await pool.query(`DELETE FROM experts WHERE id = $1`, [userId]);
 
       // Delete buyer profile if exists
-      await pool.query(`DELETE FROM buyers WHERE user_id = $1`, [userId]);
+      // buyers table uses 'id' as FK to user_accounts
+      await pool.query(`DELETE FROM buyers WHERE id = $1`, [userId]);
 
       // Delete profiles
       await pool.query(`DELETE FROM profiles WHERE user_id = $1`, [userId]);
 
-      // Delete sessions
-      await pool.query(`DELETE FROM sessions WHERE user_id = $1`, [userId]);
-
       // Finally, delete the user account
       await pool.query(`DELETE FROM user_accounts WHERE id = $1`, [userId]);
 
+      // Commit DB transaction first
       await pool.query("COMMIT");
+
+      // ✅ Then delete from Supabase Auth (outside transaction)
+      const { error: authDeleteError } = await supabase.auth.admin.deleteUser(userId);
+      if (authDeleteError) {
+        console.error("Supabase auth delete error:", authDeleteError);
+      }
 
       console.log(
         `[deleteAccount] Successfully deleted user ${userId} and all related data`,
@@ -1280,7 +1356,8 @@ export const verifyGoogleOAuth = async (req, res) => {
         ua.timezone,
         ua.email_verified,
         ua.last_login,
-        ua.profile_completion
+        ua.profile_completion,
+        ua.preferred_language
       FROM profiles p
       JOIN user_accounts ua ON p.user_id = ua.id
       WHERE p.id = $1`,

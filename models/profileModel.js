@@ -37,7 +37,7 @@ const ProfileModel = {
         id, email, first_name, last_name, username, role,
         avatar_url, banner_url, timezone, profile_completion, 
         created_at, updated_at, last_login, email_verified, country,
-        settings
+        settings, preferred_language
       FROM user_accounts
       WHERE id = $1
       `,

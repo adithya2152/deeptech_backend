@@ -281,7 +281,6 @@ CREATE TABLE public.experts (
   profile_reviewed_at timestamp with time zone,
   profile_updated_at timestamp with time zone DEFAULT now(),
   preferred_engagement_mode text NOT NULL DEFAULT 'daily'::text CHECK (preferred_engagement_mode = ANY (ARRAY['daily'::text, 'fixed'::text, 'sprint'::text])),
-  avg_hourly_rate numeric DEFAULT 0,
   avg_daily_rate numeric DEFAULT 0,
   avg_fixed_rate numeric DEFAULT 0,
   avg_sprint_rate numeric DEFAULT 0,
@@ -429,10 +428,7 @@ CREATE TABLE public.projects (
   expected_outcome text,
   buyer_profile_id uuid NOT NULL,
   currency text DEFAULT 'INR'::text CHECK (currency ~ '^[A-Z]{3}$'::text),
-<<<<<<< HEAD
-=======
   project_embedding USER-DEFINED,
->>>>>>> 421b84ccd2f82954f7094bfb6f94fa867e2630b9
   CONSTRAINT projects_pkey PRIMARY KEY (id),
   CONSTRAINT projects_buyer_profile_fk FOREIGN KEY (buyer_profile_id) REFERENCES public.profiles(id)
 );
@@ -447,14 +443,10 @@ CREATE TABLE public.proposals (
   duration_days integer,
   engagement_model USER-DEFINED NOT NULL,
   rate numeric NOT NULL,
-  estimated_hours numeric,
   sprint_count integer,
   expert_profile_id uuid,
   currency text DEFAULT 'INR'::text CHECK (currency ~ '^[A-Z]{3}$'::text),
-<<<<<<< HEAD
-=======
   estimated_hours numeric,
->>>>>>> 421b84ccd2f82954f7094bfb6f94fa867e2630b9
   CONSTRAINT proposals_pkey PRIMARY KEY (id),
   CONSTRAINT proposals_profile_fk FOREIGN KEY (expert_profile_id) REFERENCES public.profiles(id),
   CONSTRAINT proposals_project_id_projects_id_fk FOREIGN KEY (project_id) REFERENCES public.projects(id)
