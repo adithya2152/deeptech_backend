@@ -291,7 +291,7 @@ export const login = async (req, res) => {
     // Query user_accounts for user data
     const result = await pool.query(
       `SELECT id, email, first_name, last_name, role, avatar_url, banner_url, 
-              profile_completion, is_banned, ban_reason 
+              profile_completion, is_banned, ban_reason, preferred_language, settings
        FROM user_accounts WHERE id = $1`,
       [userId]
     );
@@ -344,6 +344,8 @@ export const login = async (req, res) => {
           avatar_url: user.avatar_url,
           banner_url: user.banner_url,
           profile_completion: user.profile_completion,
+          preferred_language: user.preferred_language,
+          settings: user.settings
         },
         tokens: {
           accessToken,
@@ -593,7 +595,7 @@ export const getCurrentUser = async (req, res) => {
     }
 
     const result = await pool.query(
-      `SELECT id, email, first_name, last_name, role, avatar_url, banner_url, timezone,
+      `SELECT id, email, first_name, last_name, role, avatar_url, banner_url, timezone, preferred_language,
               profile_completion, created_at, last_login
        FROM user_accounts WHERE id = $1`,
       [userId]
@@ -622,6 +624,7 @@ export const getCurrentUser = async (req, res) => {
           avatar_url: user.avatar_url,
           banner_url: user.banner_url,
           timezone: user.timezone,
+          preferred_language: user.preferred_language || 'en',
           profile_completion: user.profile_completion,
           created_at: user.created_at,
           last_login: user.last_login,
@@ -648,7 +651,8 @@ export const updateCurrentUser = async (req, res) => {
       });
     }
 
-    const { first_name, last_name, avatar_url, banner_url, timezone } = req.body;
+    const { first_name, last_name, avatar_url, banner_url, timezone, preferred_language } = req.body;
+
 
     const result = await pool.query(
       `
@@ -659,11 +663,12 @@ export const updateCurrentUser = async (req, res) => {
         avatar_url = COALESCE($3, avatar_url),
         banner_url = COALESCE($4, banner_url),
         timezone   = COALESCE($5, timezone),
+        preferred_language = COALESCE($6, preferred_language),
         updated_at = NOW()
-      WHERE id = $6
-      RETURNING id, email, first_name, last_name, role, avatar_url, banner_url, timezone, created_at
+      WHERE id = $7
+      RETURNING id, email, first_name, last_name, role, avatar_url, banner_url, timezone, preferred_language, created_at
       `,
-      [first_name, last_name, avatar_url, banner_url, timezone, userId]
+      [first_name, last_name, avatar_url, banner_url, timezone, preferred_language, userId]
     );
 
     if (result.rows.length === 0) {

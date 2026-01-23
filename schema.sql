@@ -126,7 +126,7 @@ CREATE TABLE public.contracts (
   expert_profile_id uuid NOT NULL,
   buyer_profile_id uuid NOT NULL,
   nda_required boolean DEFAULT false,
-  currency text DEFAULT 'USD'::text,
+  currency text DEFAULT 'INR'::text CHECK (currency ~ '^[A-Z]{3}$'::text),
   offer_accepted_at timestamp with time zone,
   buyer_signed_at timestamp without time zone,
   expert_signed_at timestamp without time zone,
@@ -187,6 +187,12 @@ CREATE TABLE public.doubt_answers (
   created_at timestamp with time zone DEFAULT now(),
   CONSTRAINT doubt_answers_pkey PRIMARY KEY (id),
   CONSTRAINT doubt_answers_user_fk FOREIGN KEY (user_id) REFERENCES public.user_accounts(id)
+);
+CREATE TABLE public.exchange_rates (
+  currency text NOT NULL,
+  rate_from_inr numeric NOT NULL,
+  updated_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT exchange_rates_pkey PRIMARY KEY (currency)
 );
 CREATE TABLE public.expert_ai_evaluations (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
@@ -275,6 +281,7 @@ CREATE TABLE public.experts (
   profile_reviewed_at timestamp with time zone,
   profile_updated_at timestamp with time zone DEFAULT now(),
   preferred_engagement_mode text NOT NULL DEFAULT 'daily'::text CHECK (preferred_engagement_mode = ANY (ARRAY['daily'::text, 'fixed'::text, 'sprint'::text])),
+  avg_hourly_rate numeric DEFAULT 0,
   avg_daily_rate numeric DEFAULT 0,
   avg_fixed_rate numeric DEFAULT 0,
   avg_sprint_rate numeric DEFAULT 0,
@@ -333,22 +340,10 @@ CREATE TABLE public.invoices (
   source_id uuid,
   expert_profile_id uuid NOT NULL,
   buyer_profile_id uuid NOT NULL,
-  currency text DEFAULT 'USD'::text,
+  currency text DEFAULT 'INR'::text CHECK (currency ~ '^[A-Z]{3}$'::text),
   CONSTRAINT invoices_pkey PRIMARY KEY (id),
   CONSTRAINT invoices_buyer_profile_fk FOREIGN KEY (buyer_profile_id) REFERENCES public.profiles(id),
   CONSTRAINT invoices_contract_fk FOREIGN KEY (contract_id) REFERENCES public.contracts(id)
-);
-CREATE TABLE public.leaderboard_earnings (
-  id uuid NOT NULL DEFAULT gen_random_uuid(),
-  expert_profile_id uuid NOT NULL,
-  earnings_week numeric DEFAULT 0,
-  earnings_month numeric DEFAULT 0,
-  earnings_all_time numeric DEFAULT 0,
-  week_start_date date,
-  month_start_date date,
-  updated_at timestamp with time zone DEFAULT now(),
-  CONSTRAINT leaderboard_earnings_pkey PRIMARY KEY (id),
-  CONSTRAINT leaderboard_earnings_profile_fk FOREIGN KEY (expert_profile_id) REFERENCES public.profiles(id)
 );
 CREATE TABLE public.message_attachments (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
@@ -432,7 +427,7 @@ CREATE TABLE public.projects (
   risk_categories ARRAY,
   expected_outcome text,
   buyer_profile_id uuid NOT NULL,
-  currency text DEFAULT 'USD'::text,
+  currency text DEFAULT 'INR'::text CHECK (currency ~ '^[A-Z]{3}$'::text),
   CONSTRAINT projects_pkey PRIMARY KEY (id),
   CONSTRAINT projects_buyer_profile_fk FOREIGN KEY (buyer_profile_id) REFERENCES public.profiles(id)
 );
@@ -447,9 +442,10 @@ CREATE TABLE public.proposals (
   duration_days integer,
   engagement_model USER-DEFINED NOT NULL,
   rate numeric NOT NULL,
+  estimated_hours numeric,
   sprint_count integer,
   expert_profile_id uuid,
-  currency text DEFAULT 'USD'::text,
+  currency text DEFAULT 'INR'::text CHECK (currency ~ '^[A-Z]{3}$'::text),
   CONSTRAINT proposals_pkey PRIMARY KEY (id),
   CONSTRAINT proposals_profile_fk FOREIGN KEY (expert_profile_id) REFERENCES public.profiles(id),
   CONSTRAINT proposals_project_id_projects_id_fk FOREIGN KEY (project_id) REFERENCES public.projects(id)
@@ -545,7 +541,7 @@ CREATE TABLE public.user_accounts (
 );
 CREATE TABLE public.user_preferred_currency (
   user_id uuid NOT NULL,
-  preferred_currency text DEFAULT 'USD'::text,
+  preferred_currency text DEFAULT 'INR'::text CHECK (preferred_currency ~ '^[A-Z]{3}$'::text),
   country text,
   detected_at timestamp with time zone DEFAULT now(),
   updated_at timestamp with time zone DEFAULT now(),
