@@ -84,12 +84,10 @@ export const sendEmailOtp = async (req, res) => {
       [email],
     );
     if (existingUser.rows.length > 0) {
-      return res
-        .status(409)
-        .json({
-          success: false,
-          message: "User already exists. Please login.",
-        });
+      return res.status(409).json({
+        success: false,
+        message: "User already exists. Please login.",
+      });
     }
 
     const { error } = await supabase.auth.signInWithOtp({
@@ -173,12 +171,10 @@ export const register = async (req, res) => {
       }
       userId = decoded.userId;
     } catch (e) {
-      return res
-        .status(401)
-        .json({
-          success: false,
-          message: "Invalid or expired verification session",
-        });
+      return res.status(401).json({
+        success: false,
+        message: "Invalid or expired verification session",
+      });
     }
 
     if (password.length < 6) {
@@ -775,13 +771,11 @@ export const uploadProfileMedia = async (req, res) => {
 
     if (uploadResult.error) {
       console.error("Supabase upload error:", uploadResult.error);
-      return res
-        .status(500)
-        .json({
-          success: false,
-          message:
-            uploadResult.error.message || JSON.stringify(uploadResult.error),
-        });
+      return res.status(500).json({
+        success: false,
+        message:
+          uploadResult.error.message || JSON.stringify(uploadResult.error),
+      });
     }
 
     const { data } = supabase.storage
@@ -790,12 +784,10 @@ export const uploadProfileMedia = async (req, res) => {
 
     if (!data || !data.publicUrl) {
       console.error("Supabase publicUrl missing for", filePath, uploadResult);
-      return res
-        .status(500)
-        .json({
-          success: false,
-          message: "Failed to obtain public URL after upload",
-        });
+      return res.status(500).json({
+        success: false,
+        message: "Failed to obtain public URL after upload",
+      });
     }
 
     // Add cache-busting timestamp to force browsers to fetch the new image
@@ -1147,7 +1139,8 @@ export const initiateGoogleOAuth = async (req, res) => {
     const { data, error } = await supabase.auth.signInWithOAuth({
       provider: "google",
       options: {
-        redirectTo: `${process.env.BACKEND_URL || "http://localhost:5000"}/api/auth/google/callback`,
+        // Redirect directly to frontend callback to handle hash tokens
+        redirectTo: `${process.env.FRONTEND_URL || "http://localhost:5173"}/auth/callback`,
         queryParams: {
           access_type: "offline",
           prompt: "consent",
@@ -1168,6 +1161,142 @@ export const initiateGoogleOAuth = async (req, res) => {
     return res.status(500).json({
       success: false,
       message: error.message || "Failed to initiate Google OAuth",
+    });
+  }
+};
+
+/**
+ * Verify Google OAuth token and create/login user
+ * Called from frontend after it receives tokens from Supabase
+ */
+export const verifyGoogleOAuth = async (req, res) => {
+  try {
+    const { access_token } = req.body;
+
+    if (!access_token) {
+      return res.status(400).json({
+        success: false,
+        message: "Access token is required",
+      });
+    }
+
+    // Get user from Supabase using the access token
+    const {
+      data: { user },
+      error: userError,
+    } = await supabase.auth.getUser(access_token);
+
+    if (userError || !user) {
+      console.error("[verifyGoogleOAuth] User fetch error:", userError);
+      return res.status(401).json({
+        success: false,
+        message: "Invalid access token",
+      });
+    }
+
+    // Check if user exists in user_accounts
+    const userAccountResult = await pool.query(
+      "SELECT id, email FROM user_accounts WHERE id = $1",
+      [user.id],
+    );
+
+    let userId = user.id;
+
+    // If user doesn't exist, create them
+    if (userAccountResult.rows.length === 0) {
+      const firstName = user.user_metadata?.full_name?.split(" ")[0] || "User";
+      const lastName =
+        user.user_metadata?.full_name?.split(" ").slice(1).join(" ") || "";
+
+      await pool.query(
+        `INSERT INTO user_accounts (id, email, first_name, last_name, role, email_verified, auth_provider)
+         VALUES ($1, $2, $3, $4, 'buyer', true, 'google')`,
+        [user.id, user.email, firstName, lastName],
+      );
+    }
+
+    // Check if user has any profiles
+    const profilesResult = await pool.query(
+      "SELECT id, profile_type, is_active FROM profiles WHERE user_id = $1",
+      [userId],
+    );
+
+    let profileType = "buyer"; // Default
+    let profileId = null;
+
+    if (profilesResult.rows.length > 0) {
+      // User has profiles, get active one or first one
+      const activeProfile =
+        profilesResult.rows.find((p) => p.is_active) || profilesResult.rows[0];
+      profileType = activeProfile.profile_type;
+      profileId = activeProfile.id;
+    } else {
+      // New user - create a default buyer profile
+      const newProfileResult = await pool.query(
+        `INSERT INTO profiles (user_id, profile_type, is_active)
+         VALUES ($1, 'buyer', true)
+         RETURNING id, profile_type`,
+        [userId],
+      );
+      profileType = "buyer";
+      profileId = newProfileResult.rows[0].id;
+
+      // Create buyer record with profile_id as buyer_profile_id (primary key)
+      await pool.query(
+        `INSERT INTO buyers (id, buyer_profile_id)
+         VALUES ($1, $2)`,
+        [userId, profileId],
+      );
+    }
+
+    // Generate JWT tokens
+    const tokens = generateTokens(userId, user.email, profileType, profileId);
+
+    // Update last login on user_accounts table (using userId, not profileId)
+    await pool.query(
+      "UPDATE user_accounts SET last_login = NOW() WHERE id = $1",
+      [userId],
+    );
+
+    // Get full user profile data
+    const { rows: userRows } = await pool.query(
+      `SELECT 
+        p.id as profileId,
+        p.user_id,
+        p.profile_type as role,
+        p.is_active,
+        p.created_at,
+        ua.id,
+        ua.email,
+        ua.first_name,
+        ua.last_name,
+        ua.username,
+        ua.avatar_url,
+        ua.banner_url,
+        ua.country,
+        ua.timezone,
+        ua.email_verified,
+        ua.last_login,
+        ua.profile_completion
+      FROM profiles p
+      JOIN user_accounts ua ON p.user_id = ua.id
+      WHERE p.id = $1`,
+      [profileId],
+    );
+
+    return res.status(200).json({
+      success: true,
+      message: "Successfully authenticated with Google",
+      data: {
+        user: userRows[0],
+        tokens,
+      },
+    });
+  } catch (error) {
+    console.error("[verifyGoogleOAuth] Error:", error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || "Failed to verify Google OAuth",
     });
   }
 };
