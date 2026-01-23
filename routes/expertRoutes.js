@@ -145,9 +145,36 @@ router.delete('/documents/:documentId', auth, expertController.deleteExpertDocum
 
 // --- SPECIFIC EXPERT ROUTES ---
 
-// Dashboard stats (Changed path slightly to be cleaner, but /dashboard-stats is fine if frontend matches)
+// Dashboard stats
 router.get('/:id/stats', auth, expertController.getDashboardStats); 
-router.get('/:id/dashboard-stats', auth, expertController.getDashboardStats); // Kept legacy support just in case
+router.get('/:id/dashboard-stats', auth, expertController.getDashboardStats); // Kept legacy support
+
+// --- NEW ROUTE FOR RECOMMENDED PROJECTS ---
+/**
+ * @swagger
+ * /api/experts/{id}/recommended-projects:
+ * get:
+ * summary: Get AI-recommended projects for an expert
+ * tags:
+ * - Experts
+ * parameters:
+ * - in: path
+ * name: id
+ * required: true
+ * schema:
+ * type: string
+ * description: The expert UUID
+ * - in: query
+ * name: limit
+ * schema:
+ * type: integer
+ * default: 6
+ * description: Max number of projects to return
+ * responses:
+ * 200:
+ * description: List of recommended projects
+ */
+router.get('/:id/recommended-projects', auth, expertController.getRecommendedProjects);
 
 /**
  * @swagger
