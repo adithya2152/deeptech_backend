@@ -15,7 +15,9 @@ import {
   acceptAdminInvite,
   getCurrentUser,
   updateCurrentUser,
-  deleteAccount
+  deleteAccount,
+  initiateGoogleOAuth,
+  handleGoogleCallback,
 } from "../controllers/authController.js";
 import multer from "multer";
 
@@ -113,5 +115,9 @@ router.post("/switch-role", auth, switchRole);
 router.post("/accept-admin-invite", auth, acceptAdminInvite);
 
 router.delete("/account", auth, deleteAccount);
+
+// Google OAuth routes
+router.post("/google", initiateGoogleOAuth);
+router.get("/google/callback", handleGoogleCallback);
 
 export default router;
