@@ -22,6 +22,7 @@ const Contract = {
       engagement_model,
       payment_terms,
       start_date,
+      currency,
     } = data;
 
     const existing = await Contract.findActiveOrPendingForPair(
@@ -73,9 +74,10 @@ const Contract = {
         start_date,
         status,
         created_at,
-        total_amount        
+        total_amount,
+        currency
       )
-      VALUES ($1, $2, $3, $4, $5, $6, 'pending', NOW(), $7)
+      VALUES ($1, $2, $3, $4, $5, $6, 'pending', NOW(), $7, COALESCE($8, 'INR'))
       RETURNING *;
     `;
 
@@ -87,6 +89,7 @@ const Contract = {
       JSON.stringify(payment_terms),
       start_date,
       total_amount,
+      currency,
     ];
 
     const { rows } = await pool.query(query, values);

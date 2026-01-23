@@ -15,6 +15,7 @@ const Expert = {
 
         e.experience_summary,
         e.domains,
+        e.avg_hourly_rate,
         e.avg_daily_rate,
         e.avg_fixed_rate,
         e.avg_sprint_rate,
@@ -79,6 +80,7 @@ const Expert = {
         e.availability_status,
         e.is_profile_complete,
         e.expert_status,
+        e.avg_hourly_rate,
         e.avg_daily_rate,
         e.avg_fixed_rate,
         e.avg_sprint_rate,
@@ -120,6 +122,7 @@ const Expert = {
           e.availability_status,
           e.is_profile_complete,
           e.expert_status,
+          e.avg_hourly_rate,
           e.avg_daily_rate,
           e.avg_fixed_rate,
           e.avg_sprint_rate,
@@ -148,6 +151,7 @@ const Expert = {
     const allowed = [
       'experience_summary',
       'domains',
+      'avg_hourly_rate',
       'avg_daily_rate',
       'avg_fixed_rate',
       'avg_sprint_rate',

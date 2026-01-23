@@ -13,7 +13,19 @@ const Proposal = {
       estimated_hours,
       quote_amount,
       message,
+      currency,
     } = data;
+
+    let finalCurrency = currency;
+    if (!finalCurrency && project_id) {
+      try {
+        const { rows } = await pool.query('SELECT currency FROM projects WHERE id = $1', [project_id]);
+        finalCurrency = rows?.[0]?.currency;
+      } catch {
+        // fall back to table default
+      }
+    }
+    finalCurrency = finalCurrency ? String(finalCurrency).toUpperCase() : null;
 
     // 1) Check if a proposal already exists for this project+expert_profile
     const existingRes = await pool.query(
@@ -49,10 +61,11 @@ const Proposal = {
         estimated_hours = $5,
         quote_amount = $6,
         message = $7,
+        currency = COALESCE($8, currency),
         status = 'pending',
         created_at = NOW(),
         updated_at = NOW()
-      WHERE id = $8
+      WHERE id = $9
       RETURNING *;
       `,
         [
@@ -63,6 +76,7 @@ const Proposal = {
           estimated_hours,
           quote_amount,
           message,
+          finalCurrency,
           existing.id,
         ]
       );
@@ -81,11 +95,12 @@ const Proposal = {
       estimated_hours,
       quote_amount,
       message,
+      currency,
       status,
       created_at,
       updated_at
     )
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'pending', NOW(), NOW())
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, COALESCE($10, 'INR'), 'pending', NOW(), NOW())
     RETURNING *;
   `;
 
@@ -99,6 +114,7 @@ const Proposal = {
       estimated_hours,
       quote_amount,
       message,
+      finalCurrency,
     ];
 
     const { rows } = await pool.query(insertQuery, values);

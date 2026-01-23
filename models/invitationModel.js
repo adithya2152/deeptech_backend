@@ -155,7 +155,7 @@ export const Invitation = {
           project.buyer_profile_id,
           expertProfileId,
           engagementModel,
-          JSON.stringify({ currency: 'USD', ...invPaymentTerms }),
+          JSON.stringify({ currency: String(project.currency || 'INR').toUpperCase(), ...invPaymentTerms }),
           'pending',
           new Date(),
           totalAmount

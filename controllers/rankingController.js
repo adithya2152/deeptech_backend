@@ -36,7 +36,7 @@ export const getUserRank = async (req, res) => {
        SELECT 
          percentile,
          (SELECT COUNT(*) FROM expert_scores) as total_experts,
-         (SELECT COUNT(*) FROM expert_scores WHERE score < (SELECT score FROM expert_scores WHERE user_id = $1)) + 1 as rank_position
+         (SELECT COUNT(*) FROM expert_scores WHERE score > (SELECT score FROM expert_scores WHERE user_id = $1)) + 1 as rank_position
        FROM ranked
        WHERE user_id = $1`,
       [userId]

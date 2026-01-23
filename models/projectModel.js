@@ -246,18 +246,21 @@ const Project = {
     const {
       buyer_profile_id, title, description, domain, trl_level,
       expected_outcome, risk_categories, budget_min, budget_max, deadline,
-      status
+      status,
+      currency
     } = data;
 
     const sql = `
       INSERT INTO projects (
         buyer_profile_id, title, description, domain, trl_level, 
         expected_outcome, risk_categories, budget_min, budget_max, deadline,
-        status
+        status,
+        currency
       )
       VALUES (
         $1, $2, $3, $4, $5, $6, $7::text[], $8, $9, $10, 
-        COALESCE($11, 'draft')
+        COALESCE($11, 'draft'),
+        COALESCE($12, 'INR')
       )
       RETURNING *;
     `;
@@ -265,7 +268,8 @@ const Project = {
     const params = [
       buyer_profile_id, title, description, domain, trl_level,
       expected_outcome, risk_categories || [], budget_min, budget_max, deadline,
-      status
+      status,
+      currency
     ];
 
     const { rows } = await pool.query(sql, params);
@@ -284,9 +288,10 @@ const Project = {
         message,
         engagement_model,
         rate,
+        currency,
         status
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, 'pending')
+      VALUES ($1, $2, $3, $4, $5, $6, $7, (SELECT currency FROM projects WHERE id = $1), 'pending')
       RETURNING *;
     `;
 
@@ -334,6 +339,7 @@ const Project = {
           deadline = COALESCE($9, deadline),
           risk_categories = COALESCE($10, risk_categories)::text[],
           domain = COALESCE($11, domain),
+          currency = COALESCE($12, currency),
           updated_at = NOW()
       WHERE id = $1
       RETURNING *;
@@ -350,7 +356,8 @@ const Project = {
       updates.budget_max,
       updates.deadline,
       updates.risk_categories,
-      updates.domain
+      updates.domain,
+      updates.currency
     ];
 
     const { rows } = await pool.query(sql, params);

@@ -72,7 +72,7 @@ export const getExpertById = async (req, res) => {
 
     const expertProfileId = expert.expert_profile_id || expert.profile_id || id;
     let documents = [];
-    
+
     if (expertProfileId && expertProfileId !== 'undefined') {
       const { rows } = await pool.query(
         `SELECT id, document_type, sub_type, title, url, is_public, created_at
@@ -133,7 +133,7 @@ export const updateExpertProfile = async (req, res) => {
     // 2. Filter & Sanitize Expert Fields
     const allowedExpertFields = [
       'experience_summary', 'domains', 'headline', 'availability_status',
-      'avg_daily_rate', 'avg_sprint_rate', 'avg_fixed_rate', 'years_experience',
+      'avg_hourly_rate', 'avg_daily_rate', 'avg_sprint_rate', 'avg_fixed_rate', 'years_experience',
       'preferred_engagement_mode', 'languages', 'portfolio_url', 'skills',
       'patents', 'papers', 'projects', 'products', 'certificates', 'awards',
       'profile_video_url', 'is_profile_complete', 'expert_status'
@@ -149,7 +149,7 @@ export const updateExpertProfile = async (req, res) => {
 
         // CRITICAL FIX: Round decimals to integers to prevent DB crash
         if (integerFields.includes(key) && value !== null && value !== undefined && value !== '') {
-           value = Math.round(Number(value)); 
+          value = Math.round(Number(value));
         }
 
         expertDataToUpdate[key] = value;
@@ -218,6 +218,21 @@ export const uploadExpertDocument = async (req, res) => {
 
     let finalUrl = url;
 
+    // For resumes, we enforce a single document per expert and replace it on re-upload.
+    // This avoids unique constraint violations when the UI “removes” locally but hasn’t saved yet.
+    let previousResumePath = null;
+    if (type === 'resume') {
+      const { rows: previousRows } = await pool.query(
+        `SELECT url FROM expert_documents
+         WHERE expert_id = $1 AND document_type = 'resume'
+         ORDER BY created_at DESC LIMIT 1`,
+        [userId]
+      );
+      if (previousRows.length && typeof previousRows[0].url === 'string') {
+        previousResumePath = previousRows[0].url;
+      }
+    }
+
     if (file) {
       const bucket = type === 'resume' ? 'expert-private-documents' : 'expert-public-documents';
       const filePath = `experts/${userId}/${type}/${Date.now()}-${file.originalname}`;
@@ -233,12 +248,45 @@ export const uploadExpertDocument = async (req, res) => {
         : supabase.storage.from(bucket).getPublicUrl(filePath).data.publicUrl;
     }
 
-    const { rows } = await pool.query(
-      `INSERT INTO expert_documents
-       (expert_id, expert_profile_id, document_type, sub_type, title, url, is_public)
-       VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
-      [userId, profileId, type, sub_type, title, finalUrl, is_public]
-    );
+    const queryConfig = type === 'resume'
+      ? {
+        text: `INSERT INTO expert_documents
+                 (expert_id, expert_profile_id, document_type, sub_type, title, url, is_public)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7)
+                 ON CONFLICT (expert_id) WHERE (document_type = 'resume')
+                 DO UPDATE SET
+                   expert_profile_id = EXCLUDED.expert_profile_id,
+                   sub_type = EXCLUDED.sub_type,
+                   title = EXCLUDED.title,
+                   url = EXCLUDED.url,
+                   is_public = EXCLUDED.is_public,
+                   created_at = NOW()
+                 RETURNING *`,
+        values: [userId, profileId, type, sub_type, title, finalUrl, is_public],
+      }
+      : {
+        text: `INSERT INTO expert_documents
+                 (expert_id, expert_profile_id, document_type, sub_type, title, url, is_public)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
+        values: [userId, profileId, type, sub_type, title, finalUrl, is_public],
+      };
+
+    const { rows } = await pool.query(queryConfig);
+
+    // Best-effort cleanup: if we replaced a stored resume file, remove the old object.
+    if (
+      type === 'resume' &&
+      file &&
+      previousResumePath &&
+      previousResumePath !== finalUrl &&
+      !previousResumePath.startsWith('http')
+    ) {
+      try {
+        await supabase.storage.from('expert-private-documents').remove([previousResumePath]);
+      } catch (cleanupErr) {
+        console.warn('Resume cleanup failed:', cleanupErr);
+      }
+    }
 
     res.json({ success: true, data: rows[0] });
   } catch (err) {
@@ -274,9 +322,28 @@ export const deleteExpertDocument = async (req, res) => {
 export const getDashboardStats = async (req, res) => {
   try {
     const expertId = req.params.id;
+    const userId = req.user?.id || expertId;
     const expert = await expertModel.getExpertById(expertId);
     const expertProfileId = expert?.expert_profile_id || expertId;
 
+    // Get user's preferred display currency
+    const { rows: prefRows } = await pool.query(
+      `SELECT preferred_currency FROM user_preferred_currency WHERE user_id = $1`,
+      [userId]
+    );
+    const displayCurrency = prefRows[0]?.preferred_currency || 'INR';
+
+    // Get exchange rate for conversion (if not INR)
+    let exchangeRate = 1;
+    if (displayCurrency !== 'INR') {
+      const { rows: rateRows } = await pool.query(
+        `SELECT rate_from_inr FROM exchange_rates WHERE currency = $1`,
+        [displayCurrency]
+      );
+      exchangeRate = parseFloat(rateRows[0]?.rate_from_inr) || 1;
+    }
+
+    // All amounts in DB are stored in INR (base currency)
     const { rows: totalRows } = await pool.query(`
       SELECT COALESCE(SUM(amount), 0) AS total
       FROM invoices WHERE expert_profile_id = $1 AND status = 'paid'
@@ -303,11 +370,20 @@ export const getDashboardStats = async (req, res) => {
     if (lastMonth > 0) trendPercentage = Math.round(((thisMonth - lastMonth) / lastMonth) * 100);
     else if (thisMonth > 0) trendPercentage = 100;
 
+    // Convert all amounts to display currency
+    const totalEarningsINR = parseFloat(totalRows[0].total) || 0;
+    const totalEarnings = Math.round(totalEarningsINR * exchangeRate);
+
     res.json({
       success: true,
       data: {
-        totalEarnings: parseFloat(totalRows[0].total) || 0,
-        earningsChart: monthlyRows.map(r => ({ name: r.name, value: parseFloat(r.value) || 0 })),
+        totalEarnings,
+        totalEarningsINR, // Keep original INR for reference
+        displayCurrency,
+        earningsChart: monthlyRows.map(r => ({
+          name: r.name,
+          value: Math.round((parseFloat(r.value) || 0) * exchangeRate)
+        })),
         trendPercentage
       }
     });

@@ -90,13 +90,28 @@ export const getBuyerStats = async (req, res) => {
       return res.status(404).json({ message: "Client not found" });
     }
 
-    // Calculate total_spent from paid invoices (accurate, not stale)
-    const { rows: spentRows } = await pool.query(`
-      SELECT COALESCE(SUM(amount), 0) AS total_spent
+    // Calculate total_spent from paid invoices, grouped by currency
+    const { rows: spentRows } = await pool.query(
+      `
+      SELECT COALESCE(currency, 'INR') as currency, COALESCE(SUM(amount), 0) AS total
       FROM invoices
       WHERE buyer_profile_id = $1
         AND status = 'paid'
-    `, [buyerProfileId]);
+      GROUP BY COALESCE(currency, 'INR')
+      `,
+      [buyerProfileId]
+    );
+
+    const totalSpentByCurrency = spentRows.reduce((acc, r) => {
+      const currency = String(r.currency || 'INR');
+      acc[currency] = parseFloat(r.total) || 0;
+      return acc;
+    }, {});
+
+    const primaryCurrency = Object.entries(totalSpentByCurrency)
+      .sort((a, b) => (b[1] || 0) - (a[1] || 0))[0]?.[0] || 'INR';
+
+    const totalSpentPrimary = totalSpentByCurrency[primaryCurrency] || 0;
 
     // Calculate projects posted from actual projects table
     const { rows: projectRows } = await pool.query(`
@@ -117,7 +132,10 @@ export const getBuyerStats = async (req, res) => {
 
     return res.json({
       data: {
-        total_spent: parseFloat(spentRows[0].total_spent) || 0,
+        // Back-compat: numeric total is the primary-currency total (NOT a mixed-currency sum)
+        total_spent: totalSpentPrimary,
+        total_spent_currency: primaryCurrency,
+        total_spent_by_currency: totalSpentByCurrency,
         hire_rate: hireRate,
         jobs_posted_count: projectsPosted,
         avg_hourly_rate: 0,
@@ -134,6 +152,7 @@ export const getBuyerStats = async (req, res) => {
 export const getDashboardStats = async (req, res) => {
   try {
     const id = req.params.id;
+    const userId = req.user?.id || id;
 
     // Determine if this is a profile_id or user_id and get the buyer_profile_id
     let buyerProfileId = id;
@@ -147,13 +166,31 @@ export const getDashboardStats = async (req, res) => {
       buyerProfileId = profileRows[0].id;
     }
 
-    // Get total spent from invoices (only paid ones)
-    const { rows: spentRows } = await pool.query(`
-      SELECT COALESCE(SUM(amount), 0) AS total_spent
-      FROM invoices
-      WHERE buyer_profile_id = $1
-        AND status = 'paid'
-    `, [buyerProfileId]);
+    // Get user's preferred display currency
+    const { rows: prefRows } = await pool.query(
+      `SELECT preferred_currency FROM user_preferred_currency WHERE user_id = $1`,
+      [userId]
+    );
+    const displayCurrency = prefRows[0]?.preferred_currency || 'INR';
+
+    // Get exchange rate for conversion (if not INR)
+    let exchangeRate = 1;
+    if (displayCurrency !== 'INR') {
+      const { rows: rateRows } = await pool.query(
+        `SELECT rate_from_inr FROM exchange_rates WHERE currency = $1`,
+        [displayCurrency]
+      );
+      exchangeRate = parseFloat(rateRows[0]?.rate_from_inr) || 1;
+    }
+
+    // All amounts in DB are stored in INR (base currency)
+    const { rows: spentRows } = await pool.query(
+      `SELECT COALESCE(SUM(amount), 0) AS total FROM invoices WHERE buyer_profile_id = $1 AND status = 'paid'`,
+      [buyerProfileId]
+    );
+
+    const totalSpentINR = parseFloat(spentRows[0]?.total) || 0;
+    const totalSpent = Math.round(totalSpentINR * exchangeRate);
 
     // Count unique experts hired (contracts that reached active or completed status)
     const { rows: hiredRows } = await pool.query(`
@@ -174,7 +211,9 @@ export const getDashboardStats = async (req, res) => {
     return res.json({
       success: true,
       data: {
-        totalSpent: parseFloat(spentRows[0].total_spent) || 0,
+        totalSpent,
+        totalSpentINR, // Keep original INR for reference
+        displayCurrency,
         expertsHired: parseInt(hiredRows[0].experts_hired) || 0,
         completedProjects: parseInt(completedRows[0].completed_count) || 0
       }

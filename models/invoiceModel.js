@@ -15,7 +15,21 @@ const Invoice = {
       week_end_date,
       source_type,
       source_id,
+      currency,
     } = data;
+
+    let finalCurrency = currency;
+    if (!finalCurrency && contract_id) {
+      try {
+        const { rows } = await pool.query(
+          'SELECT currency FROM contracts WHERE id = $1',
+          [contract_id]
+        );
+        finalCurrency = rows?.[0]?.currency;
+      } catch {
+        // fall back to DB defaults
+      }
+    }
 
     const query = `
       INSERT INTO invoices (
@@ -23,6 +37,7 @@ const Invoice = {
         expert_profile_id,
         buyer_profile_id,
         amount,
+        currency,
         total_hours,
         status,
         invoice_type,
@@ -32,7 +47,7 @@ const Invoice = {
         source_id,
         created_at
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW())
+      VALUES ($1, $2, $3, $4, COALESCE($5, 'INR'), $6, $7, $8, $9, $10, $11, $12, NOW())
       RETURNING *;
     `;
 
@@ -41,6 +56,7 @@ const Invoice = {
       expert_profile_id,
       buyer_profile_id,
       amount,
+      finalCurrency ? String(finalCurrency).toUpperCase() : null,
       total_hours || 0,
       status,
       invoice_type,

@@ -90,7 +90,7 @@ export const createContract = async (req, res) => {
 
     // Check project ownership using buyer_profile_id
     const projectCheck = await pool.query(
-      "SELECT id, buyer_profile_id FROM projects WHERE id = $1",
+      "SELECT id, buyer_profile_id, currency FROM projects WHERE id = $1",
       [project_id]
     );
 
@@ -107,6 +107,8 @@ export const createContract = async (req, res) => {
         message: "You can only create contracts for your own projects",
       });
     }
+
+    const projectCurrency = String(projectCheck.rows[0].currency || 'INR').toUpperCase();
 
     if (!validatePaymentTerms(engagement_model, payment_terms)) {
       return res.status(400).json({
@@ -126,13 +128,18 @@ export const createContract = async (req, res) => {
       });
     }
 
+    // Ensure payment_terms currency is set and aligned with project currency.
+    const normalizedPaymentTerms = { ...(payment_terms || {}) };
+    normalizedPaymentTerms.currency = projectCurrency;
+
     const contract = await Contract.createContract({
       project_id,
       buyer_profile_id: buyerProfileId,
       expert_profile_id,
       engagement_model,
-      payment_terms,
+      payment_terms: normalizedPaymentTerms,
       start_date,
+      currency: projectCurrency,
     });
 
     // Update proposals using expert_profile_id

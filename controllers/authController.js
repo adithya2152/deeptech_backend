@@ -15,11 +15,11 @@ const getActiveProfile = async (userId) => {
        FROM profiles 
        WHERE user_id = $1 AND is_active = true
        LIMIT 1`,
-      [userId]
+      [userId],
     );
     return rows[0] || null;
   } catch (err) {
-    console.error('[getActiveProfile] Error:', err);
+    console.error("[getActiveProfile] Error:", err);
     return null;
   }
 };
@@ -29,11 +29,11 @@ const getAllProfiles = async (userId) => {
   try {
     const { rows } = await pool.query(
       `SELECT id, profile_type, is_active FROM profiles WHERE user_id = $1`,
-      [userId]
+      [userId],
     );
     return rows;
   } catch (err) {
-    console.error('[getAllProfiles] Error:', err);
+    console.error("[getAllProfiles] Error:", err);
     return [];
   }
 };
@@ -41,7 +41,7 @@ const getAllProfiles = async (userId) => {
 // Helper to determine the active role
 const getActiveRole = async (userId) => {
   const profile = await getActiveProfile(userId);
-  return profile?.profile_type || 'buyer';
+  return profile?.profile_type || "buyer";
 };
 
 const generateTokens = (userId, email, role = "buyer", profileId = null) => {
@@ -54,7 +54,7 @@ const generateTokens = (userId, email, role = "buyer", profileId = null) => {
       type: "access",
     },
     jwtSecret,
-    { expiresIn: jwtExpiry }
+    { expiresIn: jwtExpiry },
   );
 
   const refreshToken = jwt.sign(
@@ -64,7 +64,7 @@ const generateTokens = (userId, email, role = "buyer", profileId = null) => {
       type: "refresh",
     },
     jwtSecret,
-    { expiresIn: refreshTokenExpiry }
+    { expiresIn: refreshTokenExpiry },
   );
 
   return { accessToken, refreshToken };
@@ -73,12 +73,21 @@ const generateTokens = (userId, email, role = "buyer", profileId = null) => {
 export const sendEmailOtp = async (req, res) => {
   try {
     const { email } = req.body;
-    if (!email) return res.status(400).json({ success: false, message: "Email is required" });
+    if (!email)
+      return res
+        .status(400)
+        .json({ success: false, message: "Email is required" });
 
     // Check user_accounts instead of profiles
-    const existingUser = await pool.query("SELECT id FROM user_accounts WHERE email = $1", [email]);
+    const existingUser = await pool.query(
+      "SELECT id FROM user_accounts WHERE email = $1",
+      [email],
+    );
     if (existingUser.rows.length > 0) {
-      return res.status(409).json({ success: false, message: "User already exists. Please login." });
+      return res.status(409).json({
+        success: false,
+        message: "User already exists. Please login.",
+      });
     }
 
     const { error } = await supabase.auth.signInWithOtp({
@@ -88,7 +97,9 @@ export const sendEmailOtp = async (req, res) => {
 
     if (error) throw error;
 
-    return res.status(200).json({ success: true, message: `OTP sent to ${email}` });
+    return res
+      .status(200)
+      .json({ success: true, message: `OTP sent to ${email}` });
   } catch (error) {
     return res.status(500).json({ success: false, message: error.message });
   }
@@ -98,7 +109,9 @@ export const verifyEmailOtp = async (req, res) => {
   try {
     const { email, otp } = req.body;
     if (!email || !otp) {
-      return res.status(400).json({ success: false, message: "Email and OTP are required" });
+      return res
+        .status(400)
+        .json({ success: false, message: "Email and OTP are required" });
     }
 
     const { data, error } = await supabase.auth.verifyOtp({
@@ -113,28 +126,41 @@ export const verifyEmailOtp = async (req, res) => {
       {
         email,
         userId: data.user.id,
-        type: "signup_ticket"
+        type: "signup_ticket",
       },
       jwtSecret,
-      { expiresIn: "15m" }
+      { expiresIn: "15m" },
     );
 
     return res.status(200).json({
       success: true,
       message: "Email verified successfully",
-      data: { signupTicket }
+      data: { signupTicket },
     });
   } catch (error) {
-    return res.status(400).json({ success: false, message: "Invalid or expired OTP" });
+    return res
+      .status(400)
+      .json({ success: false, message: "Invalid or expired OTP" });
   }
 };
 
 export const register = async (req, res) => {
   try {
-    const { email, password, first_name, last_name, role = "buyer", domains = [], phone, signupTicket } = req.body;
+    const {
+      email,
+      password,
+      first_name,
+      last_name,
+      role = "buyer",
+      domains = [],
+      phone,
+      signupTicket,
+    } = req.body;
 
     if (!email || !password || !signupTicket) {
-      return res.status(400).json({ success: false, message: "Missing required fields" });
+      return res
+        .status(400)
+        .json({ success: false, message: "Missing required fields" });
     }
 
     let userId;
@@ -145,7 +171,10 @@ export const register = async (req, res) => {
       }
       userId = decoded.userId;
     } catch (e) {
-      return res.status(401).json({ success: false, message: "Invalid or expired verification session" });
+      return res.status(401).json({
+        success: false,
+        message: "Invalid or expired verification session",
+      });
     }
 
     if (password.length < 6) {
@@ -158,7 +187,7 @@ export const register = async (req, res) => {
     // Check user_accounts instead of profiles for existing user
     const existingUser = await pool.query(
       "SELECT id FROM user_accounts WHERE email = $1",
-      [email]
+      [email],
     );
 
     if (existingUser.rows.length > 0) {
@@ -172,10 +201,13 @@ export const register = async (req, res) => {
       }
     }
 
-    const { error: updateError } = await supabase.auth.admin.updateUserById(userId, {
-      password: password,
-      user_metadata: { first_name, last_name, role, phone }
-    });
+    const { error: updateError } = await supabase.auth.admin.updateUserById(
+      userId,
+      {
+        password: password,
+        user_metadata: { first_name, last_name, role, phone },
+      },
+    );
 
     if (updateError) throw updateError;
 
@@ -187,7 +219,7 @@ export const register = async (req, res) => {
          first_name = EXCLUDED.first_name,
          last_name = EXCLUDED.last_name,
          role = EXCLUDED.role`,
-      [userId, email, first_name || "", last_name || "", role]
+      [userId, email, first_name || "", last_name || "", role],
     );
 
     // 2. Create profile entry in profiles table
@@ -195,13 +227,14 @@ export const register = async (req, res) => {
       `INSERT INTO profiles (user_id, profile_type, is_active, created_at, updated_at)
        VALUES ($1, $2, true, NOW(), NOW())
        RETURNING id, profile_type, is_active`,
-      [userId, role]
+      [userId, role],
     );
     const profile = profileRows[0];
 
     // 3. Create role-specific entry using profile_id as PK
-    if (role === 'expert') {
-      const expertDomains = Array.isArray(domains) && domains.length > 0 ? domains : [];
+    if (role === "expert") {
+      const expertDomains =
+        Array.isArray(domains) && domains.length > 0 ? domains : [];
 
       await pool.query(
         `INSERT INTO experts (
@@ -211,28 +244,39 @@ export const register = async (req, res) => {
           userId,
           profile.id,
           expertDomains,
-          `Expert in ${expertDomains.join(', ') || 'deep-tech'} ready for projects`
-        ]
+          `Expert in ${expertDomains.join(", ") || "deep-tech"} ready for projects`,
+        ],
       );
 
       // ✅ Generate embedding for new expert (async, non-blocking)
-      generateEmbeddingAsync(profile.id).catch(err => {
-        console.error('Failed to generate embedding for new expert:', err.message);
+      generateEmbeddingAsync(profile.id).catch((err) => {
+        console.error(
+          "Failed to generate embedding for new expert:",
+          err.message,
+        );
       });
 
       // ✅ Generate embedding for new expert (async, non-blocking)
-      generateEmbeddingAsync(profile.id).catch(err => {
-        console.error('Failed to generate embedding for new expert:', err.message);
+      generateEmbeddingAsync(profile.id).catch((err) => {
+        console.error(
+          "Failed to generate embedding for new expert:",
+          err.message,
+        );
       });
-    } else if (role === 'buyer') {
+    } else if (role === "buyer") {
       await pool.query(
         `INSERT INTO buyers (id, buyer_profile_id, is_active) VALUES ($1, $2, true)
          ON CONFLICT (buyer_profile_id) DO NOTHING`,
-        [userId, profile.id]
+        [userId, profile.id],
       );
     }
 
-    const { accessToken, refreshToken } = generateTokens(userId, email, role, profile.id);
+    const { accessToken, refreshToken } = generateTokens(
+      userId,
+      email,
+      role,
+      profile.id,
+    );
 
     return res.status(201).json({
       success: true,
@@ -253,7 +297,7 @@ export const register = async (req, res) => {
       },
     });
   } catch (error) {
-    console.error('[register] Error:', error);
+    console.error("[register] Error:", error);
     return res.status(500).json({
       success: false,
       message: "Internal server error",
@@ -293,7 +337,7 @@ export const login = async (req, res) => {
       `SELECT id, email, first_name, last_name, role, avatar_url, banner_url, 
               profile_completion, is_banned, ban_reason, preferred_language, settings
        FROM user_accounts WHERE id = $1`,
-      [userId]
+      [userId],
     );
 
     if (result.rows.length === 0) {
@@ -310,25 +354,26 @@ export const login = async (req, res) => {
         success: false,
         message: "Your account has been suspended.",
         reason: user.ban_reason,
-        code: "USER_BANNED"
+        code: "USER_BANNED",
       });
     }
 
     // Get active profile from profiles table
     const activeProfile = await getActiveProfile(userId);
-    const activeRole = activeProfile?.profile_type || user.role || 'buyer';
+    const activeRole = activeProfile?.profile_type || user.role || "buyer";
     const profileId = activeProfile?.id || null;
 
     const { accessToken, refreshToken } = generateTokens(
       userId,
       email,
       activeRole,
-      profileId
+      profileId,
     );
 
-    await pool.query("UPDATE user_accounts SET last_login = NOW() WHERE id = $1", [
-      userId,
-    ]);
+    await pool.query(
+      "UPDATE user_accounts SET last_login = NOW() WHERE id = $1",
+      [userId],
+    );
 
     return res.status(200).json({
       success: true,
@@ -385,7 +430,7 @@ export const refreshAccessToken = async (req, res) => {
     // Query user_accounts
     const result = await pool.query(
       "SELECT id, email, role, is_banned, ban_reason FROM user_accounts WHERE id = $1",
-      [decoded.id]
+      [decoded.id],
     );
 
     if (result.rows.length === 0) {
@@ -402,7 +447,7 @@ export const refreshAccessToken = async (req, res) => {
         success: false,
         message: "Your account has been suspended.",
         reason: user.ban_reason,
-        code: "USER_BANNED"
+        code: "USER_BANNED",
       });
     }
 
@@ -419,7 +464,7 @@ export const refreshAccessToken = async (req, res) => {
         type: "access",
       },
       jwtSecret,
-      { expiresIn: jwtExpiry }
+      { expiresIn: jwtExpiry },
     );
 
     return res.status(200).json({
@@ -454,7 +499,7 @@ export const logout = async (req, res) => {
 
       await pool.query(
         "UPDATE user_accounts SET last_logout = NOW() WHERE id = $1",
-        [userId]
+        [userId],
       );
     }
 
@@ -475,13 +520,15 @@ export const requestPasswordReset = async (req, res) => {
   try {
     const { email } = req.body;
     if (!email) {
-      return res.status(400).json({ success: false, message: "Email is required" });
+      return res
+        .status(400)
+        .json({ success: false, message: "Email is required" });
     }
 
     // Check if user exists in our database
     const existingUser = await pool.query(
       "SELECT id FROM user_accounts WHERE email = $1",
-      [email]
+      [email],
     );
 
     if (existingUser.rows.length === 0) {
@@ -517,7 +564,8 @@ export const requestPasswordReset = async (req, res) => {
     // Avoid email enumeration: always respond success when configured correctly.
     return res.status(200).json({
       success: true,
-      message: "If an account exists for that email, a password reset link has been sent.",
+      message:
+        "If an account exists for that email, a password reset link has been sent.",
       data: { redirectTo },
     });
   } catch (error) {
@@ -548,7 +596,8 @@ export const resetPasswordWithRecoveryTokens = async (req, res) => {
     if (sessionError) {
       return res.status(400).json({
         success: false,
-        message: "Invalid or expired recovery session. Please request a new reset link.",
+        message:
+          "Invalid or expired recovery session. Please request a new reset link.",
       });
     }
 
@@ -572,7 +621,8 @@ export const resetPasswordWithRecoveryTokens = async (req, res) => {
 
     return res.status(200).json({
       success: true,
-      message: "Password updated successfully. Please log in with your new password.",
+      message:
+        "Password updated successfully. Please log in with your new password.",
     });
   } catch (error) {
     console.error("[resetPasswordWithRecoveryTokens] Error:", error);
@@ -598,7 +648,7 @@ export const getCurrentUser = async (req, res) => {
       `SELECT id, email, first_name, last_name, role, avatar_url, banner_url, timezone, preferred_language,
               profile_completion, created_at, last_login
        FROM user_accounts WHERE id = $1`,
-      [userId]
+      [userId],
     );
 
     if (result.rows.length === 0) {
@@ -651,8 +701,7 @@ export const updateCurrentUser = async (req, res) => {
       });
     }
 
-    const { first_name, last_name, avatar_url, banner_url, timezone, preferred_language } = req.body;
-
+    const { first_name, last_name, avatar_url, banner_url, timezone } = req.body;
 
     const result = await pool.query(
       `
@@ -668,11 +717,13 @@ export const updateCurrentUser = async (req, res) => {
       WHERE id = $7
       RETURNING id, email, first_name, last_name, role, avatar_url, banner_url, timezone, preferred_language, created_at
       `,
-      [first_name, last_name, avatar_url, banner_url, timezone, preferred_language, userId]
+      [first_name, last_name, avatar_url, banner_url, timezone, userId]
     );
 
     if (result.rows.length === 0) {
-      return res.status(404).json({ success: false, message: "User not found" });
+      return res
+        .status(404)
+        .json({ success: false, message: "User not found" });
     }
 
     return res.status(200).json({
@@ -694,11 +745,11 @@ export const uploadProfileMedia = async (req, res) => {
   try {
     const userId = req.user?.id;
     const typeRaw = req.query?.type;
-    const type = typeof typeRaw === 'string' ? typeRaw : String(typeRaw || ''); // avatar | banner
+    const type = typeof typeRaw === "string" ? typeRaw : String(typeRaw || ""); // avatar | banner
     const file = req.file;
 
     if (!userId) {
-      return res.status(401).json({ success: false, message: 'Unauthorized' });
+      return res.status(401).json({ success: false, message: "Unauthorized" });
     }
 
     if (!file) {
@@ -706,7 +757,9 @@ export const uploadProfileMedia = async (req, res) => {
     }
 
     if (!["avatar", "banner"].includes(type)) {
-      return res.status(400).json({ success: false, message: "Invalid media type" });
+      return res
+        .status(400)
+        .json({ success: false, message: "Invalid media type" });
     }
 
     const ext = path.extname(file.originalname);
@@ -720,8 +773,12 @@ export const uploadProfileMedia = async (req, res) => {
       });
 
     if (uploadResult.error) {
-      console.error('Supabase upload error:', uploadResult.error);
-      return res.status(500).json({ success: false, message: uploadResult.error.message || JSON.stringify(uploadResult.error) });
+      console.error("Supabase upload error:", uploadResult.error);
+      return res.status(500).json({
+        success: false,
+        message:
+          uploadResult.error.message || JSON.stringify(uploadResult.error),
+      });
     }
 
     const { data } = supabase.storage
@@ -729,8 +786,11 @@ export const uploadProfileMedia = async (req, res) => {
       .getPublicUrl(filePath);
 
     if (!data || !data.publicUrl) {
-      console.error('Supabase publicUrl missing for', filePath, uploadResult);
-      return res.status(500).json({ success: false, message: 'Failed to obtain public URL after upload' });
+      console.error("Supabase publicUrl missing for", filePath, uploadResult);
+      return res.status(500).json({
+        success: false,
+        message: "Failed to obtain public URL after upload",
+      });
     }
 
     // Add cache-busting timestamp to force browsers to fetch the new image
@@ -739,12 +799,12 @@ export const uploadProfileMedia = async (req, res) => {
     // Update user_accounts instead of profiles
     await pool.query(
       `UPDATE user_accounts SET ${type}_url = $1, updated_at = NOW() WHERE id = $2`,
-      [urlWithCacheBuster, userId]
+      [urlWithCacheBuster, userId],
     );
 
     res.json({ success: true, url: urlWithCacheBuster });
   } catch (err) {
-    console.error('uploadProfileMedia error:', err);
+    console.error("uploadProfileMedia error:", err);
     const message = err && err.message ? err.message : String(err);
     res.status(500).json({ success: false, message });
   }
@@ -759,12 +819,12 @@ export const switchRole = async (req, res) => {
 
     // Get all profiles for this user
     const allProfiles = await getAllProfiles(userId);
-    const activeProfile = allProfiles.find(p => p.is_active);
-    const currentRole = activeProfile?.profile_type || 'buyer';
+    const activeProfile = allProfiles.find((p) => p.is_active);
+    const currentRole = activeProfile?.profile_type || "buyer";
     const newRole = currentRole === "buyer" ? "expert" : "buyer";
 
     // Check if the new role profile exists
-    let newRoleProfile = allProfiles.find(p => p.profile_type === newRole);
+    let newRoleProfile = allProfiles.find((p) => p.profile_type === newRole);
 
     if (!newRoleProfile) {
       // Create the new profile
@@ -772,34 +832,40 @@ export const switchRole = async (req, res) => {
         `INSERT INTO profiles (user_id, profile_type, is_active, created_at, updated_at)
          VALUES ($1, $2, false, NOW(), NOW())
          RETURNING id, profile_type, is_active`,
-        [userId, newRole]
+        [userId, newRole],
       );
       newRoleProfile = rows[0];
 
       // Create the role-specific record
-      if (newRole === 'expert') {
+      if (newRole === "expert") {
         await pool.query(
           `INSERT INTO experts (id, expert_profile_id, domains, experience_summary, is_active)
            VALUES ($1, $2, $3, $4, false)
            ON CONFLICT (expert_profile_id) DO NOTHING`,
-          [userId, newRoleProfile.id, [], "New expert profile"]
+          [userId, newRoleProfile.id, [], "New expert profile"],
         );
 
         // ✅ Generate embedding for new expert profile (async, non-blocking)
-        generateEmbeddingAsync(newRoleProfile.id).catch(err => {
-          console.error('Failed to generate embedding for role switch:', err.message);
+        generateEmbeddingAsync(newRoleProfile.id).catch((err) => {
+          console.error(
+            "Failed to generate embedding for role switch:",
+            err.message,
+          );
         });
 
         // ✅ Generate embedding for new expert profile (async, non-blocking)
-        generateEmbeddingAsync(newRoleProfile.id).catch(err => {
-          console.error('Failed to generate embedding for role switch:', err.message);
+        generateEmbeddingAsync(newRoleProfile.id).catch((err) => {
+          console.error(
+            "Failed to generate embedding for role switch:",
+            err.message,
+          );
         });
-      } else if (newRole === 'buyer') {
+      } else if (newRole === "buyer") {
         await pool.query(
           `INSERT INTO buyers (id, buyer_profile_id, is_active)
            VALUES ($1, $2, false)
            ON CONFLICT (buyer_profile_id) DO NOTHING`,
-          [userId, newRoleProfile.id]
+          [userId, newRoleProfile.id],
         );
       }
     }
@@ -808,13 +874,13 @@ export const switchRole = async (req, res) => {
     if (activeProfile) {
       await pool.query(
         `UPDATE profiles SET is_active = false, updated_at = NOW() WHERE id = $1`,
-        [activeProfile.id]
+        [activeProfile.id],
       );
     }
 
     await pool.query(
       `UPDATE profiles SET is_active = true, updated_at = NOW() WHERE id = $1`,
-      [newRoleProfile.id]
+      [newRoleProfile.id],
     );
 
     const tokens = generateTokens(userId, email, newRole, newRoleProfile.id);
@@ -828,7 +894,7 @@ export const switchRole = async (req, res) => {
       },
     });
   } catch (err) {
-    console.error('[switchRole] Error:', err);
+    console.error("[switchRole] Error:", err);
     return res.status(500).json({
       success: false,
       message: err.message,
@@ -845,53 +911,68 @@ export const acceptAdminInvite = async (req, res) => {
     const { inviteToken } = req.body;
 
     if (!userId || !email) {
-      return res.status(401).json({ success: false, message: 'Not authenticated' });
+      return res
+        .status(401)
+        .json({ success: false, message: "Not authenticated" });
     }
 
     if (!inviteToken) {
-      return res.status(400).json({ success: false, message: 'inviteToken is required' });
+      return res
+        .status(400)
+        .json({ success: false, message: "inviteToken is required" });
     }
 
     if (!jwtSecret) {
-      return res.status(500).json({ success: false, message: 'JWT_SECRET not configured' });
+      return res
+        .status(500)
+        .json({ success: false, message: "JWT_SECRET not configured" });
     }
 
     let payload;
     try {
       payload = jwt.verify(inviteToken, jwtSecret);
     } catch {
-      return res.status(400).json({ success: false, message: 'Invalid or expired invite token' });
+      return res
+        .status(400)
+        .json({ success: false, message: "Invalid or expired invite token" });
     }
 
-    if (!payload || payload.type !== 'admin_invite' || !payload.email) {
-      return res.status(400).json({ success: false, message: 'Invalid invite token' });
+    if (!payload || payload.type !== "admin_invite" || !payload.email) {
+      return res
+        .status(400)
+        .json({ success: false, message: "Invalid invite token" });
     }
 
     if (String(payload.email).toLowerCase() !== String(email).toLowerCase()) {
       return res.status(403).json({
         success: false,
-        message: 'Invite token does not match your account email',
+        message: "Invite token does not match your account email",
       });
     }
 
     await pool.query(
       `UPDATE user_accounts SET role = 'admin', updated_at = NOW() WHERE id = $1`,
-      [userId]
+      [userId],
     );
 
     const activeProfile = await getActiveProfile(userId);
-    const tokens = generateTokens(userId, email, 'admin', activeProfile?.id || null);
+    const tokens = generateTokens(
+      userId,
+      email,
+      "admin",
+      activeProfile?.id || null,
+    );
 
     return res.json({
       success: true,
-      message: 'Admin role activated',
+      message: "Admin role activated",
       data: {
-        role: 'admin',
+        role: "admin",
         tokens,
       },
     });
   } catch (err) {
-    console.error('[acceptAdminInvite] Error:', err);
+    console.error("[acceptAdminInvite] Error:", err);
     return res.status(500).json({ success: false, message: err.message });
   }
 };
@@ -901,60 +982,89 @@ export const deleteAccount = async (req, res) => {
   const userId = req.user?.id;
 
   if (!userId) {
-    return res.status(401).json({ success: false, message: 'Not authenticated' });
+    return res
+      .status(401)
+      .json({ success: false, message: "Not authenticated" });
   }
 
   try {
     // Start a transaction for data integrity
-    await pool.query('BEGIN');
+    await pool.query("BEGIN");
 
     try {
       // Delete in order of dependencies (child records first)
 
       // Delete work logs
-      await pool.query(`DELETE FROM work_logs WHERE contract_id IN (
+      await pool.query(
+        `DELETE FROM work_logs WHERE contract_id IN (
         SELECT id FROM contracts WHERE buyer_id = $1 OR expert_id = $1
-      )`, [userId]);
+      )`,
+        [userId],
+      );
 
       // Delete day work summaries
-      await pool.query(`DELETE FROM day_work_summaries WHERE contract_id IN (
+      await pool.query(
+        `DELETE FROM day_work_summaries WHERE contract_id IN (
         SELECT id FROM contracts WHERE buyer_id = $1 OR expert_id = $1
-      )`, [userId]);
+      )`,
+        [userId],
+      );
 
       // Delete disputes
-      await pool.query(`DELETE FROM disputes WHERE contract_id IN (
+      await pool.query(
+        `DELETE FROM disputes WHERE contract_id IN (
         SELECT id FROM contracts WHERE buyer_id = $1 OR expert_id = $1
-      )`, [userId]);
+      )`,
+        [userId],
+      );
 
       // Delete invoices
-      await pool.query(`DELETE FROM invoices WHERE contract_id IN (
+      await pool.query(
+        `DELETE FROM invoices WHERE contract_id IN (
         SELECT id FROM contracts WHERE buyer_id = $1 OR expert_id = $1
-      )`, [userId]);
+      )`,
+        [userId],
+      );
 
       // Delete contract documents
-      await pool.query(`DELETE FROM contract_documents WHERE contract_id IN (
+      await pool.query(
+        `DELETE FROM contract_documents WHERE contract_id IN (
         SELECT id FROM contracts WHERE buyer_id = $1 OR expert_id = $1
-      )`, [userId]);
+      )`,
+        [userId],
+      );
 
       // Delete time entries
-      await pool.query(`DELETE FROM time_entries WHERE contract_id IN (
+      await pool.query(
+        `DELETE FROM time_entries WHERE contract_id IN (
         SELECT id FROM contracts WHERE buyer_id = $1 OR expert_id = $1
-      )`, [userId]);
+      )`,
+        [userId],
+      );
 
       // Delete contracts
-      await pool.query(`DELETE FROM contracts WHERE buyer_id = $1 OR expert_id = $1`, [userId]);
+      await pool.query(
+        `DELETE FROM contracts WHERE buyer_id = $1 OR expert_id = $1`,
+        [userId],
+      );
 
       // Delete proposals
-      await pool.query(`DELETE FROM proposals WHERE expert_id IN (
+      await pool.query(
+        `DELETE FROM proposals WHERE expert_id IN (
         SELECT id FROM profiles WHERE user_id = $1
-      )`, [userId]);
+      )`,
+        [userId],
+      );
 
       // Delete project invitations
-      await pool.query(`DELETE FROM project_invitations WHERE expert_id IN (
+      await pool.query(
+        `DELETE FROM project_invitations WHERE expert_id IN (
         SELECT id FROM profiles WHERE user_id = $1
       ) OR project_id IN (
         SELECT id FROM projects WHERE buyer_id = $1
-      )`, [userId]);
+      )`,
+        [userId],
+      );
 
       // Delete projects
       await pool.query(`DELETE FROM projects WHERE buyer_id = $1`, [userId]);
@@ -963,10 +1073,16 @@ export const deleteAccount = async (req, res) => {
       await pool.query(`DELETE FROM messages WHERE sender_id = $1`, [userId]);
 
       // Delete conversations the user is part of
-      await pool.query(`DELETE FROM conversation_participants WHERE user_id = $1`, [userId]);
+      await pool.query(
+        `DELETE FROM conversation_participants WHERE user_id = $1`,
+        [userId],
+      );
 
       // Delete reviews
-      await pool.query(`DELETE FROM reviews WHERE reviewer_id = $1 OR reviewee_id = $1`, [userId]);
+      await pool.query(
+        `DELETE FROM reviews WHERE reviewer_id = $1 OR reviewee_id = $1`,
+        [userId],
+      );
 
       // Delete user scores
       await pool.query(`DELETE FROM user_scores WHERE user_id = $1`, [userId]);
@@ -975,7 +1091,9 @@ export const deleteAccount = async (req, res) => {
       await pool.query(`DELETE FROM user_tags WHERE user_id = $1`, [userId]);
 
       // Delete rank tiers
-      await pool.query(`DELETE FROM user_rank_tiers WHERE user_id = $1`, [userId]);
+      await pool.query(`DELETE FROM user_rank_tiers WHERE user_id = $1`, [
+        userId,
+      ]);
 
       // Delete expert profile if exists
       await pool.query(`DELETE FROM experts WHERE user_id = $1`, [userId]);
@@ -992,26 +1110,297 @@ export const deleteAccount = async (req, res) => {
       // Finally, delete the user account
       await pool.query(`DELETE FROM user_accounts WHERE id = $1`, [userId]);
 
-      await pool.query('COMMIT');
+      await pool.query("COMMIT");
 
-      console.log(`[deleteAccount] Successfully deleted user ${userId} and all related data`);
+      console.log(
+        `[deleteAccount] Successfully deleted user ${userId} and all related data`,
+      );
 
       return res.json({
         success: true,
-        message: 'Your account has been permanently deleted.',
+        message: "Your account has been permanently deleted.",
       });
-
     } catch (deleteErr) {
-      await pool.query('ROLLBACK');
+      await pool.query("ROLLBACK");
       throw deleteErr;
     }
-
   } catch (err) {
-    console.error('[deleteAccount] Error:', err);
+    console.error("[deleteAccount] Error:", err);
     return res.status(500).json({
       success: false,
-      message: 'Failed to delete account. Please contact support.',
+      message: "Failed to delete account. Please contact support.",
     });
+  }
+};
+
+/**
+ * Initiate Google OAuth flow
+ * Returns the authorization URL for frontend to redirect to
+ */
+export const initiateGoogleOAuth = async (req, res) => {
+  try {
+    const { data, error } = await supabase.auth.signInWithOAuth({
+      provider: "google",
+      options: {
+        // Redirect directly to frontend callback to handle hash tokens
+        redirectTo: `${process.env.FRONTEND_URL || "http://localhost:5173"}/auth/callback`,
+        queryParams: {
+          access_type: "offline",
+          prompt: "consent",
+        },
+      },
+    });
+
+    if (error) throw error;
+
+    return res.status(200).json({
+      success: true,
+      data: {
+        url: data.url,
+      },
+    });
+  } catch (error) {
+    console.error("[initiateGoogleOAuth] Error:", error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || "Failed to initiate Google OAuth",
+    });
+  }
+};
+
+/**
+ * Verify Google OAuth token and create/login user
+ * Called from frontend after it receives tokens from Supabase
+ */
+export const verifyGoogleOAuth = async (req, res) => {
+  try {
+    const { access_token } = req.body;
+
+    if (!access_token) {
+      return res.status(400).json({
+        success: false,
+        message: "Access token is required",
+      });
+    }
+
+    // Get user from Supabase using the access token
+    const {
+      data: { user },
+      error: userError,
+    } = await supabase.auth.getUser(access_token);
+
+    if (userError || !user) {
+      console.error("[verifyGoogleOAuth] User fetch error:", userError);
+      return res.status(401).json({
+        success: false,
+        message: "Invalid access token",
+      });
+    }
+
+    // Check if user exists in user_accounts
+    const userAccountResult = await pool.query(
+      "SELECT id, email FROM user_accounts WHERE id = $1",
+      [user.id],
+    );
+
+    let userId = user.id;
+
+    // If user doesn't exist, create them
+    if (userAccountResult.rows.length === 0) {
+      const firstName = user.user_metadata?.full_name?.split(" ")[0] || "User";
+      const lastName =
+        user.user_metadata?.full_name?.split(" ").slice(1).join(" ") || "";
+
+      await pool.query(
+        `INSERT INTO user_accounts (id, email, first_name, last_name, role, email_verified, auth_provider)
+         VALUES ($1, $2, $3, $4, 'buyer', true, 'google')`,
+        [user.id, user.email, firstName, lastName],
+      );
+    }
+
+    // Check if user has any profiles
+    const profilesResult = await pool.query(
+      "SELECT id, profile_type, is_active FROM profiles WHERE user_id = $1",
+      [userId],
+    );
+
+    let profileType = "buyer"; // Default
+    let profileId = null;
+
+    if (profilesResult.rows.length > 0) {
+      // User has profiles, get active one or first one
+      const activeProfile =
+        profilesResult.rows.find((p) => p.is_active) || profilesResult.rows[0];
+      profileType = activeProfile.profile_type;
+      profileId = activeProfile.id;
+    } else {
+      // New user - create a default buyer profile
+      const newProfileResult = await pool.query(
+        `INSERT INTO profiles (user_id, profile_type, is_active)
+         VALUES ($1, 'buyer', true)
+         RETURNING id, profile_type`,
+        [userId],
+      );
+      profileType = "buyer";
+      profileId = newProfileResult.rows[0].id;
+
+      // Create buyer record with profile_id as buyer_profile_id (primary key)
+      await pool.query(
+        `INSERT INTO buyers (id, buyer_profile_id)
+         VALUES ($1, $2)`,
+        [userId, profileId],
+      );
+    }
+
+    // Generate JWT tokens
+    const tokens = generateTokens(userId, user.email, profileType, profileId);
+
+    // Update last login on user_accounts table (using userId, not profileId)
+    await pool.query(
+      "UPDATE user_accounts SET last_login = NOW() WHERE id = $1",
+      [userId],
+    );
+
+    // Get full user profile data
+    const { rows: userRows } = await pool.query(
+      `SELECT 
+        p.id as profileId,
+        p.user_id,
+        p.profile_type as role,
+        p.is_active,
+        p.created_at,
+        ua.id,
+        ua.email,
+        ua.first_name,
+        ua.last_name,
+        ua.username,
+        ua.avatar_url,
+        ua.banner_url,
+        ua.country,
+        ua.timezone,
+        ua.email_verified,
+        ua.last_login,
+        ua.profile_completion
+      FROM profiles p
+      JOIN user_accounts ua ON p.user_id = ua.id
+      WHERE p.id = $1`,
+      [profileId],
+    );
+
+    return res.status(200).json({
+      success: true,
+      message: "Successfully authenticated with Google",
+      data: {
+        user: userRows[0],
+        tokens,
+      },
+    });
+  } catch (error) {
+    console.error("[verifyGoogleOAuth] Error:", error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || "Failed to verify Google OAuth",
+    });
+  }
+};
+
+/**
+ * Handle Google OAuth callback
+ * Exchanges code for session and creates/updates user in database
+ */
+export const handleGoogleCallback = async (req, res) => {
+  try {
+    const code = req.query.code;
+
+    if (!code) {
+      return res.redirect(
+        `${process.env.FRONTEND_URL || "http://localhost:5173"}/login?error=no_code`,
+      );
+    }
+
+    // Exchange code for session
+    const {
+      data: { user },
+      error: authError,
+    } = await supabase.auth.exchangeCodeForSession(code);
+
+    if (authError || !user) {
+      console.error("[handleGoogleCallback] Auth error:", authError);
+      return res.redirect(
+        `${process.env.FRONTEND_URL || "http://localhost:5173"}/login?error=auth_failed`,
+      );
+    }
+
+    // Check if user exists in user_accounts
+    const userAccountResult = await pool.query(
+      "SELECT id, email FROM user_accounts WHERE id = $1",
+      [user.id],
+    );
+
+    let userId = user.id;
+
+    // If user doesn't exist, create them
+    if (userAccountResult.rows.length === 0) {
+      await pool.query(
+        `INSERT INTO user_accounts (id, email, email_verified, auth_provider)
+         VALUES ($1, $2, true, 'google')`,
+        [user.id, user.email],
+      );
+    }
+
+    // Check if user has any profiles
+    const profilesResult = await pool.query(
+      "SELECT id, profile_type, is_active FROM profiles WHERE user_id = $1",
+      [userId],
+    );
+
+    let profileType = "buyer"; // Default
+    let profileId = null;
+
+    if (profilesResult.rows.length > 0) {
+      // User has profiles, get active one or first one
+      const activeProfile =
+        profilesResult.rows.find((p) => p.is_active) || profilesResult.rows[0];
+      profileType = activeProfile.profile_type;
+      profileId = activeProfile.id;
+    } else {
+      // New user - create a default buyer profile
+      const newProfileResult = await pool.query(
+        `INSERT INTO profiles (user_id, profile_type, first_name, last_name, is_active)
+         VALUES ($1, 'buyer', $2, $3, true)
+         RETURNING id, profile_type`,
+        [
+          userId,
+          user.user_metadata?.full_name?.split(" ")[0] || "User",
+          user.user_metadata?.full_name?.split(" ").slice(1).join(" ") || "",
+        ],
+      );
+      profileType = "buyer";
+      profileId = newProfileResult.rows[0].id;
+
+      // Create buyer record
+      await pool.query("INSERT INTO buyers (profile_id) VALUES ($1)", [
+        profileId,
+      ]);
+    }
+
+    // Generate JWT tokens
+    const tokens = generateTokens(userId, user.email, profileType, profileId);
+
+    // Update last login
+    await pool.query("UPDATE profiles SET last_login = NOW() WHERE id = $1", [
+      profileId,
+    ]);
+
+    // Redirect to frontend with tokens
+    const frontendUrl = process.env.FRONTEND_URL || "http://localhost:5173";
+    const redirectUrl = `${frontendUrl}/auth/callback?token=${tokens.accessToken}&refresh=${tokens.refreshToken}`;
+
+    return res.redirect(redirectUrl);
+  } catch (error) {
+    console.error("[handleGoogleCallback] Error:", error);
+    const frontendUrl = process.env.FRONTEND_URL || "http://localhost:5173";
+    return res.redirect(`${frontendUrl}/login?error=callback_failed`);
   }
 };
 
@@ -1023,7 +1412,9 @@ async function generateEmbeddingAsync(expertProfileId) {
   try {
     const semanticSearchUrl = process.env.PYTHON_SEMANTIC_SEARCH_URL;
     if (!semanticSearchUrl) {
-      console.warn('⚠️  PYTHON_SEMANTIC_SEARCH_URL not configured, skipping embedding generation');
+      console.warn(
+        "⚠️  PYTHON_SEMANTIC_SEARCH_URL not configured, skipping embedding generation",
+      );
       return;
     }
 
@@ -1032,9 +1423,9 @@ async function generateEmbeddingAsync(expertProfileId) {
     const response = await fetch(
       `${semanticSearchUrl}/experts/${expertProfileId}/embedding`,
       {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-      }
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      },
     );
 
     if (!response.ok) {
@@ -1043,7 +1434,10 @@ async function generateEmbeddingAsync(expertProfileId) {
 
     console.log(`✅ Embedding generated for expert: ${expertProfileId}`);
   } catch (error) {
-    console.error(`❌ Embedding generation error for ${expertProfileId}:`, error.message);
+    console.error(
+      `❌ Embedding generation error for ${expertProfileId}:`,
+      error.message,
+    );
     throw error;
   }
 }

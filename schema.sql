@@ -300,6 +300,7 @@ CREATE TABLE public.experts (
   expert_profile_id uuid NOT NULL,
   search_vector tsvector,
   embedding USER-DEFINED,
+  avg_hourly_rate numeric DEFAULT 0,
   CONSTRAINT experts_pkey PRIMARY KEY (expert_profile_id),
   CONSTRAINT experts_id_fkey FOREIGN KEY (id) REFERENCES public.user_accounts(id)
 );
@@ -428,6 +429,10 @@ CREATE TABLE public.projects (
   expected_outcome text,
   buyer_profile_id uuid NOT NULL,
   currency text DEFAULT 'INR'::text CHECK (currency ~ '^[A-Z]{3}$'::text),
+<<<<<<< HEAD
+=======
+  project_embedding USER-DEFINED,
+>>>>>>> 421b84ccd2f82954f7094bfb6f94fa867e2630b9
   CONSTRAINT projects_pkey PRIMARY KEY (id),
   CONSTRAINT projects_buyer_profile_fk FOREIGN KEY (buyer_profile_id) REFERENCES public.profiles(id)
 );
@@ -446,6 +451,10 @@ CREATE TABLE public.proposals (
   sprint_count integer,
   expert_profile_id uuid,
   currency text DEFAULT 'INR'::text CHECK (currency ~ '^[A-Z]{3}$'::text),
+<<<<<<< HEAD
+=======
+  estimated_hours numeric,
+>>>>>>> 421b84ccd2f82954f7094bfb6f94fa867e2630b9
   CONSTRAINT proposals_pkey PRIMARY KEY (id),
   CONSTRAINT proposals_profile_fk FOREIGN KEY (expert_profile_id) REFERENCES public.profiles(id),
   CONSTRAINT proposals_project_id_projects_id_fk FOREIGN KEY (project_id) REFERENCES public.projects(id)
@@ -536,6 +545,9 @@ CREATE TABLE public.user_accounts (
   state text,
   linkedin_url text,
   github_url text,
+  preferred_language text DEFAULT 'en'::text,
+  settings jsonb DEFAULT '{}'::jsonb,
+  auth_provider text,
   CONSTRAINT user_accounts_pkey PRIMARY KEY (id),
   CONSTRAINT profiles_id_fkey FOREIGN KEY (id) REFERENCES auth.users(id)
 );

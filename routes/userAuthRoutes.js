@@ -15,7 +15,7 @@ import {
   acceptAdminInvite,
   getCurrentUser,
   updateCurrentUser,
-  deleteAccount
+  deleteAccount,
 } from "../controllers/authController.js";
 import multer from "multer";
 
@@ -44,10 +44,7 @@ const validateRegister = [
   body("signupTicket").notEmpty(),
 ];
 
-const validateLogin = [
-  validateEmail,
-  body("password").notEmpty(),
-];
+const validateLogin = [validateEmail, body("password").notEmpty()];
 
 const handleValidationErrors = (req, res, next) => {
   const errors = validationResult(req);
@@ -60,13 +57,18 @@ const handleValidationErrors = (req, res, next) => {
   next();
 };
 
-router.post("/email/send-otp", [validateEmail], handleValidationErrors, sendEmailOtp);
+router.post(
+  "/email/send-otp",
+  [validateEmail],
+  handleValidationErrors,
+  sendEmailOtp,
+);
 
 router.post(
   "/email/verify-otp",
   [validateEmail, body("otp").isLength({ min: 6, max: 8 })],
   handleValidationErrors,
-  verifyEmailOtp
+  verifyEmailOtp,
 );
 
 router.post("/register", validateRegister, handleValidationErrors, register);
@@ -77,7 +79,7 @@ router.post(
   "/password/forgot",
   [validateEmail],
   handleValidationErrors,
-  requestPasswordReset
+  requestPasswordReset,
 );
 
 router.post(
@@ -88,7 +90,7 @@ router.post(
     validatePassword,
   ],
   handleValidationErrors,
-  resetPasswordWithRecoveryTokens
+  resetPasswordWithRecoveryTokens,
 );
 
 router.post("/refresh-token", refreshAccessToken);
@@ -101,12 +103,7 @@ router.put("/me", auth, updateCurrentUser);
 
 router.patch("/me", auth, updateCurrentUser);
 
-router.post(
-  "/profile/media",
-  auth,
-  upload.single("file"),
-  uploadProfileMedia
-);
+router.post("/profile/media", auth, upload.single("file"), uploadProfileMedia);
 
 router.post("/switch-role", auth, switchRole);
 

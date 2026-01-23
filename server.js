@@ -23,6 +23,7 @@ import tagsRoutes from "./routes/tagsRoutes.js";
 import timeEntryRoutes from "./routes/timeEntryRoutes.js";
 import contractDocumentRoutes from "./routes/contractDocumentRoutes.js";
 import notificationRoutes from "./routes/notificationRoutes.js";
+import currencyRoutes from "./routes/currencyRoutes.js";
 import http from "http";
 import { Server } from "socket.io";
 import { initializeStorageBuckets } from "./utils/storage.js";
@@ -253,6 +254,7 @@ app.use("/api/tags", tagsRoutes);
 app.use("/api/time-entries", timeEntryRoutes);
 app.use("/api/contracts", contractDocumentRoutes);
 app.use("/api/notifications", notificationRoutes);
+app.use("/api/currency", currencyRoutes);
 
 app.use((req, res) => {
   res.status(404).json({

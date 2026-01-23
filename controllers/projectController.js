@@ -1,4 +1,5 @@
 import projectModel from '../models/projectModel.js';
+import { requireValidCurrency } from '../utils/currency.js';
 
 const parseBudgetNumber = (value) => {
   if (value === undefined || value === null || value === '') return 0;
@@ -50,6 +51,8 @@ export const createProject = async (req, res) => {
       return res.status(400).json({ error: budgetCheck.message });
     }
 
+    const currency = requireValidCurrency(req.body.currency);
+
     const projectData = {
       title: req.body.title,
       description: req.body.description,
@@ -60,12 +63,16 @@ export const createProject = async (req, res) => {
       expected_outcome: req.body.expected_outcome,
       budget_min: budgetCheck.min,
       budget_max: budgetCheck.max,
-      deadline: req.body.deadline
+      deadline: req.body.deadline,
+      currency,
     };
     const newProject = await projectModel.create(projectData);
     res.status(201).json({ message: 'Project created successfully', data: newProject });
   } catch (error) {
     console.error("CREATE PROJECT ERROR:", error);
+    if (error?.statusCode === 400) {
+      return res.status(400).json({ error: error.message, code: error.code });
+    }
     res.status(500).json({ error: 'Server error' });
   }
 };
@@ -121,10 +128,17 @@ export const updateProject = async (req, res) => {
       updates.budget_max = budgetCheck.max;
     }
 
+    if (Object.prototype.hasOwnProperty.call(updates, 'currency')) {
+      updates.currency = requireValidCurrency(updates.currency);
+    }
+
     const updatedProject = await projectModel.update(id, updates);
     res.status(200).json({ message: 'Project updated successfully', data: updatedProject });
   } catch (error) {
     console.error("UPDATE PROJECT ERROR:", error);
+    if (error?.statusCode === 400) {
+      return res.status(400).json({ error: error.message, code: error.code });
+    }
     res.status(500).json({ error: 'Server error' });
   }
 };
