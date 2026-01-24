@@ -168,7 +168,7 @@ export const getDashboardStats = async (req, res) => {
 
     // Get user's preferred display currency
     const { rows: prefRows } = await pool.query(
-      `SELECT preferred_currency FROM user_preferred_currency WHERE user_id = $1`,
+      `SELECT preferred_currency FROM user_accounts WHERE id = $1`,
       [userId]
     );
     const displayCurrency = prefRows[0]?.preferred_currency || 'INR';

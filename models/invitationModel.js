@@ -27,6 +27,7 @@ export const Invitation = {
                 'description', proj.description,
                 'budget_min', proj.budget_min,
                 'budget_max', proj.budget_max,
+                'currency', proj.currency,
                 'type', proj.domain,
                 'duration', proj.deadline
               ) as project,
@@ -144,21 +145,25 @@ export const Invitation = {
         totalAmount = project.budget_max || project.budget_min || 0;
       }
 
+      // Get the project currency, normalize it
+      const projectCurrency = String(project.currency || 'INR').toUpperCase();
+
       const contractRes = await client.query(
         `INSERT INTO contracts (
            project_id, buyer_profile_id, expert_profile_id, 
-           engagement_model, payment_terms, status, start_date, total_amount
-         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) 
+           engagement_model, payment_terms, status, start_date, total_amount, currency
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) 
          RETURNING id`,
         [
           project.id,
           project.buyer_profile_id,
           expertProfileId,
           engagementModel,
-          JSON.stringify({ currency: String(project.currency || 'INR').toUpperCase(), ...invPaymentTerms }),
+          JSON.stringify({ currency: projectCurrency, ...invPaymentTerms }),
           'pending',
           new Date(),
-          totalAmount
+          totalAmount,
+          projectCurrency
         ]
       );
 

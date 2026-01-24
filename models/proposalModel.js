@@ -141,10 +141,12 @@ const Proposal = {
     const query = `
       SELECT
         p.*,
+        pr.currency AS project_currency,
         u.id AS expert_user_id,
         u.first_name || ' ' || u.last_name AS expert_name,
         u.avatar_url AS expert_avatar
       FROM proposals p
+      JOIN projects pr ON p.project_id = pr.id
       JOIN profiles prof ON p.expert_profile_id = prof.id
       JOIN user_accounts u ON prof.user_id = u.id
       WHERE p.project_id = $1
@@ -166,7 +168,8 @@ const Proposal = {
         pr.title as project_title,
         pr.description as project_description,
         pr.budget_min,
-        pr.budget_max
+        pr.budget_max,
+        pr.currency as project_currency
       FROM proposals p
       JOIN projects pr ON p.project_id = pr.id
       WHERE p.expert_profile_id = $1

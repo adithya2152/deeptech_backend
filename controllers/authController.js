@@ -1113,8 +1113,7 @@ export const deleteAccount = async (req, res) => {
       // Delete notifications
       await pool.query(`DELETE FROM notifications WHERE profile_id IN (SELECT id FROM profiles WHERE user_id = $1)`, [userId]);
 
-      // Delete user_preferred_currency
-      await pool.query(`DELETE FROM user_preferred_currency WHERE user_id = $1`, [userId]);
+      // (user_preferred_currency table deprecated - now using user_accounts.preferred_currency column)
 
       // Delete answer_votes
       await pool.query(`DELETE FROM answer_votes WHERE voter_id = $1`, [userId]);

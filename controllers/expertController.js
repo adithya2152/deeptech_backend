@@ -328,7 +328,7 @@ export const getDashboardStats = async (req, res) => {
 
     // Get user's preferred display currency
     const { rows: prefRows } = await pool.query(
-      `SELECT preferred_currency FROM user_preferred_currency WHERE user_id = $1`,
+      `SELECT preferred_currency FROM user_accounts WHERE id = $1`,
       [userId]
     );
     const displayCurrency = prefRows[0]?.preferred_currency || 'INR';
@@ -448,11 +448,11 @@ export const getRecommendedProjects = async (req, res) => {
     // 1. Get Expert Data to find the expert_profile_id
     const expert = await expertModel.getExpertById(expertId);
     if (!expert) {
-        return res.status(404).json({ message: 'Expert not found' });
+      return res.status(404).json({ message: 'Expert not found' });
     }
-    
+
     // Ensure we have the UUID profile ID
-    const expertProfileId = expert.expert_profile_id; 
+    const expertProfileId = expert.expert_profile_id;
 
     // 2. Call the Python Microservice
     // Note: The Python endpoint is GET /projects/recommended?expert_profile_id=...
@@ -472,7 +472,7 @@ export const getRecommendedProjects = async (req, res) => {
     }
 
     const result = await response.json();
-    
+
     res.json({ success: true, data: result });
   } catch (err) {
     console.error("Project Recommendation Error:", err);

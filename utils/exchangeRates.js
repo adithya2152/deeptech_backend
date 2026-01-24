@@ -115,25 +115,24 @@ export async function toBaseCurrency(amount, fromCurrency) {
 }
 
 /**
- * Get user's preferred currency from DB
+ * Get user's preferred currency from user_accounts table
  */
 export async function getUserPreferredCurrency(userId) {
     const { rows } = await pool.query(
-        `SELECT preferred_currency FROM user_preferred_currency WHERE user_id = $1`,
+        `SELECT preferred_currency FROM user_accounts WHERE id = $1`,
         [userId]
     );
     return rows[0]?.preferred_currency || null;
 }
 
 /**
- * Set user's preferred currency
+ * Set user's preferred currency in user_accounts table
  */
 export async function setUserPreferredCurrency(userId, currency) {
     await pool.query(`
-    INSERT INTO user_preferred_currency (user_id, preferred_currency, updated_at)
-    VALUES ($1, $2, NOW())
-    ON CONFLICT (user_id) 
-    DO UPDATE SET preferred_currency = $2, updated_at = NOW()
+    UPDATE user_accounts 
+    SET preferred_currency = $2, updated_at = NOW()
+    WHERE id = $1
   `, [userId, currency.toUpperCase()]);
 }
 
