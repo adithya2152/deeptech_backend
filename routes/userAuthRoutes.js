@@ -18,7 +18,7 @@ import {
   deleteAccount,
   initiateGoogleOAuth,
   verifyGoogleOAuth,
-  handleGoogleCallback
+  handleGoogleCallback,
 } from "../controllers/authController.js";
 import multer from "multer";
 
@@ -114,10 +114,11 @@ router.post("/accept-admin-invite", auth, acceptAdminInvite);
 
 router.delete("/account", auth, deleteAccount);
 
-router.post("/google", initiateGoogleOAuth);
+router.post("/google",initiateGoogleOAuth)
 
-router.post("/google/verify", verifyGoogleOAuth);
+router.post("/google/verify",verifyGoogleOAuth)
 
-router.get("/google/callback", handleGoogleCallback);
+router.get("/google/callback",handleGoogleCallback)
+
 
 export default router;
