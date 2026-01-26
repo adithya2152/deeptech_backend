@@ -2,6 +2,19 @@ import { body, validationResult } from "express-validator";
 import TimeEntry from "../models/timeEntryModel.js";
 import Contract from "../models/contractModel.js";
 import Invoice from "../models/invoiceModel.js";
+import { uploadMultipleFiles, BUCKETS } from "../utils/storage.js";
+
+function isValidHttpUrl(value) {
+    if (typeof value !== "string") return false;
+    try {
+        const u = new URL(value);
+        if (!(u.protocol === "http:" || u.protocol === "https:")) return false;
+        const host = u.hostname;
+        return host === "localhost" || host.includes(".");
+    } catch {
+        return false;
+    }
+}
 
 /**
  * Validation middleware for creating time entries
@@ -14,6 +27,7 @@ export const validateTimeEntry = [
         .optional()
         .isInt({ min: 1, max: 1440 })
         .withMessage("Duration must be between 1 and 1440 minutes"),
+    body("evidence").optional(),
 ];
 
 /**
@@ -28,6 +42,90 @@ export const createTimeEntry = async (req, res) => {
 
         const expertProfileId = req.user.profileId;
         const { contract_id, description, start_time, end_time, duration_minutes } = req.body;
+
+        // Only allow logging time for today
+        const startDateObj = new Date(start_time);
+        const startDay = new Date(
+            startDateObj.getFullYear(),
+            startDateObj.getMonth(),
+            startDateObj.getDate()
+        );
+        const now = new Date();
+        const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        if (startDay.getTime() !== todayStart.getTime()) {
+            return res.status(400).json({
+                success: false,
+                message: "You can only log time for today",
+                code: "DATE_NOT_ALLOWED",
+            });
+        }
+
+        // Parse evidence from body (works for both JSON and multipart submissions)
+        let evidenceFromBody = {};
+        if (req.body.evidence) {
+            try {
+                evidenceFromBody =
+                    typeof req.body.evidence === "string" ? JSON.parse(req.body.evidence) : req.body.evidence;
+
+                if (typeof evidenceFromBody !== "object" || evidenceFromBody === null) {
+                    evidenceFromBody = {};
+                }
+            } catch (e) {
+                console.warn("Invalid evidence JSON, using empty object:", req.body.evidence);
+                evidenceFromBody = {};
+            }
+        }
+
+        // Validate links (if provided)
+        if (Array.isArray(evidenceFromBody.links)) {
+            const normalizedLinks = [];
+            for (let i = 0; i < evidenceFromBody.links.length; i++) {
+                const link = evidenceFromBody.links[i];
+                const url = typeof link === "string" ? link : link?.url;
+                if (!isValidHttpUrl(url)) {
+                    return res.status(400).json({
+                        success: false,
+                        message: `Invalid evidence link at position ${i + 1}`,
+                        code: "INVALID_EVIDENCE_LINK",
+                    });
+                }
+                normalizedLinks.push({
+                    label:
+                        typeof link === "object" && link?.label ? String(link.label) : "Link",
+                    url,
+                });
+            }
+
+            evidenceFromBody = { ...evidenceFromBody, links: normalizedLinks };
+        }
+
+        // Handle file uploads + merge with evidence body
+        let evidence = evidenceFromBody;
+        if (req.files && req.files.length > 0) {
+            const files = req.files.map((file) => ({
+                name: file.originalname,
+                buffer: file.buffer,
+                contentType: file.mimetype,
+            }));
+
+            const folder = `contract-${contract_id}/time-entry-${Date.now()}`;
+            const uploadedFiles = await uploadMultipleFiles(
+                BUCKETS.WORK_LOGS,
+                files,
+                folder
+            );
+
+            const uploadedAttachments = uploadedFiles.map((f) => ({
+                name: f.path.split("/").pop(),
+                url: f.url,
+                path: f.path,
+            }));
+
+            evidence = {
+                ...evidence,
+                attachments: uploadedAttachments,
+            };
+        }
 
         // Verify the contract exists and expert is part of it
         const contract = await Contract.getById(contract_id);
@@ -75,10 +173,94 @@ export const createTimeEntry = async (req, res) => {
 
         // Calculate duration if end_time is provided
         let calculatedDuration = duration_minutes;
-        if (end_time && !duration_minutes) {
+        if (end_time) {
             const start = new Date(start_time);
             const end = new Date(end_time);
-            calculatedDuration = Math.round((end - start) / (1000 * 60));
+            if (!Number.isFinite(start.getTime()) || !Number.isFinite(end.getTime())) {
+                return res.status(400).json({
+                    success: false,
+                    message: "Invalid start/end time",
+                    code: "INVALID_TIME_RANGE",
+                });
+            }
+            if (end.getTime() <= start.getTime()) {
+                return res.status(400).json({
+                    success: false,
+                    message: "End time must be after start time",
+                    code: "INVALID_TIME_RANGE",
+                });
+            }
+            if (!duration_minutes) {
+                calculatedDuration = Math.round((end - start) / (1000 * 60));
+            }
+        }
+
+        const durationInt = Number(calculatedDuration);
+        if (!Number.isFinite(durationInt) || durationInt < 1 || durationInt > 1440) {
+            return res.status(400).json({
+                success: false,
+                message: "Duration must be between 1 and 1440 minutes",
+                code: "INVALID_DURATION",
+            });
+        }
+
+        // Do not allow a time entry to spill into the next day
+        try {
+            const start = new Date(start_time);
+            if (!Number.isFinite(start.getTime())) {
+                return res.status(400).json({
+                    success: false,
+                    message: "Invalid start time",
+                    code: "INVALID_TIME_RANGE",
+                });
+            }
+
+            const end = end_time
+                ? new Date(end_time)
+                : new Date(start.getTime() + durationInt * 60 * 1000);
+
+            if (!Number.isFinite(end.getTime())) {
+                return res.status(400).json({
+                    success: false,
+                    message: "Invalid end time",
+                    code: "INVALID_TIME_RANGE",
+                });
+            }
+
+            const startDayKey = `${start.getFullYear()}-${start.getMonth()}-${start.getDate()}`;
+            const endDayKey = `${end.getFullYear()}-${end.getMonth()}-${end.getDate()}`;
+            if (endDayKey !== startDayKey) {
+                return res.status(400).json({
+                    success: false,
+                    message: "Time entry cannot cross into the next day",
+                    code: "CROSSES_DAY_NOT_ALLOWED",
+                });
+            }
+        } catch {
+            return res.status(400).json({
+                success: false,
+                message: "Invalid time range",
+                code: "INVALID_TIME_RANGE",
+            });
+        }
+
+        // Block overlapping time ranges for the same expert+contract on the same day
+        const startForCheck = new Date(start_time);
+        const endForCheck = end_time
+            ? new Date(end_time)
+            : new Date(startForCheck.getTime() + durationInt * 60 * 1000);
+        const overlapping = await TimeEntry.findOverlapping({
+            contractId: contract_id,
+            expertProfileId,
+            startTime: startForCheck.toISOString(),
+            endTime: endForCheck.toISOString(),
+        });
+        if (overlapping) {
+            return res.status(409).json({
+                success: false,
+                message: "This time range overlaps with an existing time entry",
+                code: "OVERLAPPING_TIME_ENTRY",
+            });
         }
 
         const timeEntry = await TimeEntry.create({
@@ -87,8 +269,9 @@ export const createTimeEntry = async (req, res) => {
             description,
             startTime: start_time,
             endTime: end_time || null,
-            durationMinutes: calculatedDuration,
+            durationMinutes: durationInt,
             hourlyRate,
+            evidence,
         });
 
         res.status(201).json({
@@ -182,11 +365,201 @@ export const updateTimeEntry = async (req, res) => {
             });
         }
 
+        // Only allow editing time entries for today
+        const effectiveStart = start_time || existing.start_time;
+        const effectiveStartObj = new Date(effectiveStart);
+        const effectiveDay = new Date(
+            effectiveStartObj.getFullYear(),
+            effectiveStartObj.getMonth(),
+            effectiveStartObj.getDate()
+        );
+        const now = new Date();
+        const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        if (effectiveDay.getTime() !== todayStart.getTime()) {
+            return res.status(400).json({
+                success: false,
+                message: "You can only edit time entries for today",
+                code: "DATE_NOT_ALLOWED",
+            });
+        }
+
+        // Validate duration range and end_time ordering if provided
+        if (end_time && effectiveStart) {
+            const start = new Date(effectiveStart);
+            const end = new Date(end_time);
+            if (!Number.isFinite(start.getTime()) || !Number.isFinite(end.getTime())) {
+                return res.status(400).json({
+                    success: false,
+                    message: "Invalid start/end time",
+                    code: "INVALID_TIME_RANGE",
+                });
+            }
+            if (end.getTime() <= start.getTime()) {
+                return res.status(400).json({
+                    success: false,
+                    message: "End time must be after start time",
+                    code: "INVALID_TIME_RANGE",
+                });
+            }
+
+            const startDayKey = `${start.getFullYear()}-${start.getMonth()}-${start.getDate()}`;
+            const endDayKey = `${end.getFullYear()}-${end.getMonth()}-${end.getDate()}`;
+            if (endDayKey !== startDayKey) {
+                return res.status(400).json({
+                    success: false,
+                    message: "Time entry cannot cross into the next day",
+                    code: "CROSSES_DAY_NOT_ALLOWED",
+                });
+            }
+        }
+
+        if (duration_minutes !== undefined) {
+            const durationInt = Number(duration_minutes);
+            if (!Number.isFinite(durationInt) || durationInt < 1 || durationInt > 1440) {
+                return res.status(400).json({
+                    success: false,
+                    message: "Duration must be between 1 and 1440 minutes",
+                    code: "INVALID_DURATION",
+                });
+            }
+        }
+
+        // If no explicit end_time, ensure start + duration stays within the same day
+        if (!end_time) {
+            const effectiveDuration = duration_minutes !== undefined ? Number(duration_minutes) : Number(existing.duration_minutes);
+            const start = new Date(effectiveStart);
+            if (Number.isFinite(start.getTime()) && Number.isFinite(effectiveDuration) && effectiveDuration > 0) {
+                const derivedEnd = new Date(start.getTime() + effectiveDuration * 60 * 1000);
+                const startDayKey = `${start.getFullYear()}-${start.getMonth()}-${start.getDate()}`;
+                const endDayKey = `${derivedEnd.getFullYear()}-${derivedEnd.getMonth()}-${derivedEnd.getDate()}`;
+                if (endDayKey !== startDayKey) {
+                    return res.status(400).json({
+                        success: false,
+                        message: "Time entry cannot cross into the next day",
+                        code: "CROSSES_DAY_NOT_ALLOWED",
+                    });
+                }
+            }
+        }
+
+        // Block overlapping time ranges for the same expert+contract on the same day
+        // (ignore rejected entries, and exclude this entry itself)
+        const overlapStart = new Date(effectiveStart);
+        const effectiveDurationForOverlap = duration_minutes !== undefined
+            ? Number(duration_minutes)
+            : Number(existing.duration_minutes);
+        const overlapEnd = end_time
+            ? new Date(end_time)
+            : new Date(overlapStart.getTime() + (Number.isFinite(effectiveDurationForOverlap) ? effectiveDurationForOverlap : 0) * 60 * 1000);
+        if (!Number.isFinite(overlapStart.getTime()) || !Number.isFinite(overlapEnd.getTime())) {
+            return res.status(400).json({
+                success: false,
+                message: "Invalid time range",
+                code: "INVALID_TIME_RANGE",
+            });
+        }
+        const overlapping = await TimeEntry.findOverlapping({
+            contractId: existing.contract_id,
+            expertProfileId,
+            startTime: overlapStart.toISOString(),
+            endTime: overlapEnd.toISOString(),
+            excludeId: id,
+        });
+        if (overlapping) {
+            return res.status(409).json({
+                success: false,
+                message: "This time range overlaps with an existing time entry",
+                code: "OVERLAPPING_TIME_ENTRY",
+            });
+        }
+
+        // Parse evidence from body (works for both JSON and multipart submissions)
+        let evidenceFromBody = {};
+        if (req.body.evidence) {
+            try {
+                evidenceFromBody =
+                    typeof req.body.evidence === "string" ? JSON.parse(req.body.evidence) : req.body.evidence;
+
+                if (typeof evidenceFromBody !== "object" || evidenceFromBody === null) {
+                    evidenceFromBody = {};
+                }
+            } catch (e) {
+                console.warn("Invalid evidence JSON, using empty object:", req.body.evidence);
+                evidenceFromBody = {};
+            }
+        }
+
+        // Validate links (if provided)
+        if (Array.isArray(evidenceFromBody.links)) {
+            const normalizedLinks = [];
+            for (let i = 0; i < evidenceFromBody.links.length; i++) {
+                const link = evidenceFromBody.links[i];
+                const url = typeof link === "string" ? link : link?.url;
+                if (!isValidHttpUrl(url)) {
+                    return res.status(400).json({
+                        success: false,
+                        message: `Invalid evidence link at position ${i + 1}`,
+                        code: "INVALID_EVIDENCE_LINK",
+                    });
+                }
+                normalizedLinks.push({
+                    label:
+                        typeof link === "object" && link?.label ? String(link.label) : "Link",
+                    url,
+                });
+            }
+
+            evidenceFromBody = { ...evidenceFromBody, links: normalizedLinks };
+        }
+
+        // Merge with existing evidence and append new uploads
+        const existingEvidence =
+            existing?.evidence && typeof existing.evidence === "string"
+                ? (() => {
+                      try {
+                          return JSON.parse(existing.evidence);
+                      } catch {
+                          return {};
+                      }
+                  })()
+                : (existing?.evidence || {});
+
+        let evidence = { ...existingEvidence, ...evidenceFromBody };
+        if (req.files && req.files.length > 0) {
+            const files = req.files.map((file) => ({
+                name: file.originalname,
+                buffer: file.buffer,
+                contentType: file.mimetype,
+            }));
+
+            const folder = `contract-${existing.contract_id}/time-entry-${id}-${Date.now()}`;
+            const uploadedFiles = await uploadMultipleFiles(
+                BUCKETS.WORK_LOGS,
+                files,
+                folder
+            );
+
+            const uploadedAttachments = uploadedFiles.map((f) => ({
+                name: f.path.split("/").pop(),
+                url: f.url,
+                path: f.path,
+            }));
+
+            const prev = Array.isArray(evidence.attachments) ? evidence.attachments : [];
+            evidence = {
+                ...evidence,
+                attachments: [...prev, ...uploadedAttachments],
+            };
+        }
+
         const updated = await TimeEntry.update(id, {
             description,
             startTime: start_time,
             endTime: end_time,
             durationMinutes: duration_minutes,
+            evidence: (req.body.evidence || (req.files && req.files.length > 0))
+                ? evidence
+                : undefined,
         });
 
         res.status(200).json({

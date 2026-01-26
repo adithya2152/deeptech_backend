@@ -9,6 +9,10 @@ const DayWorkSummary = {
       work_date,
       total_hours,
       status = "pending",
+      description,
+      problems_faced,
+      checklist,
+      evidence,
     } = data;
 
     const query = `
@@ -18,13 +22,27 @@ const DayWorkSummary = {
         work_date,
         total_hours,
         status,
+        description,
+        problems_faced,
+        checklist,
+        evidence,
         created_at
       )
-      VALUES ($1, $2, $3, $4, $5, NOW())
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
       RETURNING *;
     `;
 
-    const values = [contract_id, expert_profile_id, work_date, total_hours, status];
+    const values = [
+      contract_id,
+      expert_profile_id,
+      work_date,
+      total_hours,
+      status,
+      description ?? null,
+      problems_faced ?? null,
+      checklist ? JSON.stringify(checklist) : null,
+      evidence ? JSON.stringify(evidence) : null,
+    ];
 
     const { rows } = await pool.query(query, values);
     return rows[0];

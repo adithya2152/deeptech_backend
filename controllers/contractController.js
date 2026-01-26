@@ -805,6 +805,42 @@ export const completeContract = async (req, res) => {
       });
     }
 
+    // Hourly: do not allow completion until escrow is fully released
+    if (contract.engagement_model === "hourly") {
+      const escrowBalance = parseFloat(contract.escrow_balance || 0);
+      const releasedTotal = parseFloat(contract.released_total || 0);
+      const totalAmount = parseFloat(contract.total_amount || 0);
+
+      const escrowFullyReleased =
+        totalAmount > 0
+          ? releasedTotal >= totalAmount && escrowBalance <= 0
+          : escrowBalance <= 0;
+
+      if (!escrowFullyReleased) {
+        return res.status(400).json({
+          success: false,
+          message: "Cannot complete contract until escrow is fully released",
+          code: "ESCROW_NOT_FULLY_RELEASED",
+        });
+      }
+    }
+
+    // Daily: do not allow completion unless escrow was funded for the full contract value
+    if (contract.engagement_model === "daily") {
+      const fundedTotal = parseFloat(contract.escrow_funded_total || 0);
+      const totalAmount = parseFloat(contract.total_amount || 0);
+
+      const escrowFullyFunded = totalAmount > 0 ? fundedTotal >= totalAmount : true;
+
+      if (!escrowFullyFunded) {
+        return res.status(400).json({
+          success: false,
+          message: "Cannot complete contract until escrow is fully funded",
+          code: "ESCROW_NOT_FULLY_FUNDED",
+        });
+      }
+    }
+
     if (contract.engagement_model === "fixed") {
       const escrowBalance = parseFloat(contract.escrow_balance || 0);
       if (escrowBalance <= 0) {
@@ -976,6 +1012,23 @@ export const submitFeedback = async (req, res) => {
     const { rating, comment } = req.body;
     const giverProfileId = req.user.profileId;
 
+    const parsedRating = Number(rating);
+    const trimmedComment = typeof comment === "string" ? comment.trim() : "";
+
+    if (!Number.isFinite(parsedRating) || parsedRating < 1 || parsedRating > 5) {
+      return res.status(400).json({
+        success: false,
+        message: "Rating must be a number between 1 and 5",
+      });
+    }
+
+    if (!trimmedComment) {
+      return res.status(400).json({
+        success: false,
+        message: "Review comment is required",
+      });
+    }
+
     const contract = await Contract.getById(contractId);
     if (!contract) return res.status(404).json({ success: false, message: "Contract not found" });
 
@@ -1005,9 +1058,9 @@ export const submitFeedback = async (req, res) => {
       contractId,
       giverProfileId,
       receiverProfileId,
-      rating,
-      comment,
-      rating >= 4,
+      parsedRating,
+      trimmedComment,
+      parsedRating >= 4,
       receiverRole
     );
 

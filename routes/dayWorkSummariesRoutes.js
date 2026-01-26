@@ -1,6 +1,7 @@
 import express from "express";
 import { auth } from "../middleware/auth.js";
 import { requireRole } from "../middleware/rbac.js";
+import { uploadMultiple, handleUploadError } from "../middleware/upload.js";
 import * as dayWorkSummaryController from "../controllers/dayWorkSummaryController.js";
 
 const router = express.Router();
@@ -10,6 +11,8 @@ router.post(
   "/",
   auth,
   requireRole("expert"),
+  uploadMultiple("attachments", 10),
+  handleUploadError,
   dayWorkSummaryController.validateDayWorkSummary,
   dayWorkSummaryController.createDayWorkSummary
 );

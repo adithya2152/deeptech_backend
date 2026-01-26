@@ -1,6 +1,7 @@
 import express from "express";
 import { auth } from "../middleware/auth.js";
 import { requireRole } from "../middleware/rbac.js";
+import { uploadMultiple, handleUploadError } from "../middleware/upload.js";
 import TimeEntryController from "../controllers/timeEntryController.js";
 
 const router = express.Router();
@@ -8,7 +9,10 @@ const router = express.Router();
 // Create time entry (expert only)
 router.post(
     "/",
+    auth,
     requireRole("expert"),
+    uploadMultiple("attachments", 10),
+    handleUploadError,
     TimeEntryController.validateTimeEntry,
     TimeEntryController.createTimeEntry
 );
@@ -30,7 +34,10 @@ router.get(
 // Update time entry (expert only, draft status)
 router.patch(
     "/:id",
+    auth,
     requireRole("expert"),
+    uploadMultiple("attachments", 10),
+    handleUploadError,
     TimeEntryController.updateTimeEntry
 );
 

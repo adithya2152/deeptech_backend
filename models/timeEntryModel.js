@@ -15,12 +15,13 @@ const TimeEntry = {
         endTime,
         durationMinutes,
         hourlyRate,
+        evidence,
     }) {
         const result = await pool.query(
             `INSERT INTO time_entries (
         contract_id, expert_profile_id, description, 
-        start_time, end_time, duration_minutes, hourly_rate
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7)
+        start_time, end_time, duration_minutes, hourly_rate, evidence
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
       RETURNING *`,
             [
                 contractId,
@@ -30,6 +31,7 @@ const TimeEntry = {
                 endTime || null,
                 durationMinutes || null,
                 hourlyRate,
+                evidence ? JSON.stringify(evidence) : null,
             ]
         );
         return result.rows[0];
@@ -62,6 +64,32 @@ const TimeEntry = {
             [contractId]
         );
         return result.rows;
+    },
+
+    /**
+     * Find any overlapping time entry for same expert+contract on the same day.
+     * Overlap rule: newStart < existingEnd AND newEnd > existingStart
+     * - Adjacent ranges (end == start) are allowed.
+     * - Rejected entries are ignored.
+     */
+    async findOverlapping({ contractId, expertProfileId, startTime, endTime, excludeId = null }) {
+        const result = await pool.query(
+            `SELECT id, start_time, end_time, duration_minutes, status
+       FROM time_entries
+       WHERE contract_id = $1
+         AND expert_profile_id = $2
+         AND status <> 'rejected'
+         AND ($5::uuid IS NULL OR id <> $5)
+         AND DATE(start_time) = DATE($3::timestamptz)
+         AND $3::timestamptz < COALESCE(
+             end_time,
+             start_time + (COALESCE(duration_minutes, 0) || ' minutes')::interval
+         )
+         AND $4::timestamptz > start_time
+       LIMIT 1`,
+            [contractId, expertProfileId, startTime, endTime, excludeId]
+        );
+        return result.rows[0] || null;
     },
 
     /**
@@ -101,17 +129,25 @@ const TimeEntry = {
     /**
      * Update a time entry (only drafts can be updated)
      */
-    async update(id, { description, startTime, endTime, durationMinutes }) {
+    async update(id, { description, startTime, endTime, durationMinutes, evidence }) {
         const result = await pool.query(
             `UPDATE time_entries 
        SET description = COALESCE($2, description),
            start_time = COALESCE($3, start_time),
            end_time = COALESCE($4, end_time),
            duration_minutes = COALESCE($5, duration_minutes),
+           evidence = COALESCE($6, evidence),
            updated_at = NOW()
        WHERE id = $1 AND status = 'draft'
        RETURNING *`,
-            [id, description, startTime, endTime, durationMinutes]
+            [
+                id,
+                description,
+                startTime,
+                endTime,
+                durationMinutes,
+                evidence !== undefined && evidence !== null ? JSON.stringify(evidence) : null,
+            ]
         );
         return result.rows[0] || null;
     },

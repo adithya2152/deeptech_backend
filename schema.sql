@@ -153,6 +153,10 @@ CREATE TABLE public.day_work_summaries (
   contract_id uuid NOT NULL,
   work_date date NOT NULL,
   total_hours numeric NOT NULL,
+  description text,
+  problems_faced text,
+  checklist jsonb,
+  evidence jsonb DEFAULT '{}'::jsonb,
   status text DEFAULT 'pending'::text CHECK (status = ANY (ARRAY['pending'::text, 'approved'::text, 'rejected'::text])),
   reviewer_comment text,
   approved_at timestamp with time zone,
@@ -447,6 +451,7 @@ CREATE TABLE public.proposals (
   expert_profile_id uuid,
   currency text DEFAULT 'INR'::text CHECK (currency ~ '^[A-Z]{3}$'::text),
   estimated_hours numeric,
+  match_score numeric DEFAULT 0,
   CONSTRAINT proposals_pkey PRIMARY KEY (id),
   CONSTRAINT proposals_profile_fk FOREIGN KEY (expert_profile_id) REFERENCES public.profiles(id),
   CONSTRAINT proposals_project_id_projects_id_fk FOREIGN KEY (project_id) REFERENCES public.projects(id)
@@ -500,6 +505,7 @@ CREATE TABLE public.time_entries (
   duration_minutes integer,
   hourly_rate numeric NOT NULL,
   amount numeric DEFAULT (((duration_minutes)::numeric / 60.0) * hourly_rate),
+  evidence jsonb DEFAULT '{}'::jsonb,
   status text DEFAULT 'draft'::text CHECK (status = ANY (ARRAY['draft'::text, 'submitted'::text, 'approved'::text, 'rejected'::text])),
   reviewer_comment text,
   approved_at timestamp with time zone,
@@ -540,17 +546,9 @@ CREATE TABLE public.user_accounts (
   preferred_language text DEFAULT 'en'::text,
   settings jsonb DEFAULT '{}'::jsonb,
   auth_provider text,
+  preferred_currency text DEFAULT 'INR'::text,
   CONSTRAINT user_accounts_pkey PRIMARY KEY (id),
   CONSTRAINT profiles_id_fkey FOREIGN KEY (id) REFERENCES auth.users(id)
-);
-CREATE TABLE public.user_preferred_currency (
-  user_id uuid NOT NULL,
-  preferred_currency text DEFAULT 'INR'::text CHECK (preferred_currency ~ '^[A-Z]{3}$'::text),
-  country text,
-  detected_at timestamp with time zone DEFAULT now(),
-  updated_at timestamp with time zone DEFAULT now(),
-  CONSTRAINT user_preferred_currency_pkey PRIMARY KEY (user_id),
-  CONSTRAINT user_preferred_currency_user_fk FOREIGN KEY (user_id) REFERENCES public.user_accounts(id)
 );
 CREATE TABLE public.user_rank_tiers (
   user_id uuid NOT NULL,

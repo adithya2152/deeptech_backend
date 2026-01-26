@@ -26,11 +26,12 @@ export const initializeStorageBuckets = async () => {
       if (!bucketExists) {
         // Decide public flag: make profile-media public for easy public URLs
         const isProfileMedia = bucketName === BUCKETS.PROFILE_MEDIA;
+        const fileSizeLimit = bucketName === BUCKETS.WORK_LOGS ? 10 * 1024 * 1024 : 50 * 1024 * 1024;
         const { data, error } = await supabase.storage.createBucket(
           bucketName,
           {
             public: isProfileMedia, // profile-media public so getPublicUrl works
-            fileSizeLimit: 52428800, // 50MB
+            fileSizeLimit,
             allowedMimeTypes: [
               "image/*",
               "application/pdf",
