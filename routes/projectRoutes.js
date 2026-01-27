@@ -34,7 +34,7 @@ router.get('/', auth, projectController.getMyProjects);
  *       200:
  *         description: List of active projects
  */
-router.get('/marketplace', auth, projectController.getMarketplaceProjects);
+router.get('/marketplace', projectController.getMarketplaceProjects);
 
 /**
  * @swagger
@@ -54,7 +54,7 @@ router.get('/marketplace', auth, projectController.getMarketplaceProjects);
  *       404:
  *         description: Project not found
  */
-router.get('/:id', auth, projectController.getProjectById);
+router.get('/:id', projectController.getProjectById);
 
 /**
  * @swagger

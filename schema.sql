@@ -153,15 +153,15 @@ CREATE TABLE public.day_work_summaries (
   contract_id uuid NOT NULL,
   work_date date NOT NULL,
   total_hours numeric NOT NULL,
-  description text,
-  problems_faced text,
-  checklist jsonb,
-  evidence jsonb DEFAULT '{}'::jsonb,
   status text DEFAULT 'pending'::text CHECK (status = ANY (ARRAY['pending'::text, 'approved'::text, 'rejected'::text])),
   reviewer_comment text,
   approved_at timestamp with time zone,
   created_at timestamp with time zone DEFAULT now(),
   expert_profile_id uuid,
+  description text,
+  problems_faced text,
+  checklist jsonb,
+  evidence jsonb DEFAULT '{}'::jsonb,
   CONSTRAINT day_work_summaries_pkey PRIMARY KEY (id),
   CONSTRAINT dws_profile_fk FOREIGN KEY (expert_profile_id) REFERENCES public.profiles(id),
   CONSTRAINT dws_contract_fk FOREIGN KEY (contract_id) REFERENCES public.contracts(id)
@@ -284,7 +284,7 @@ CREATE TABLE public.experts (
   admin_notes text,
   profile_reviewed_at timestamp with time zone,
   profile_updated_at timestamp with time zone DEFAULT now(),
-  preferred_engagement_mode text NOT NULL DEFAULT 'daily'::text CHECK (preferred_engagement_mode = ANY (ARRAY['daily'::text, 'fixed'::text, 'sprint'::text])),
+  preferred_engagement_mode text NOT NULL DEFAULT 'daily'::text CHECK (preferred_engagement_mode = ANY (ARRAY['daily'::text, 'fixed'::text, 'sprint'::text, 'hourly'::text])),
   avg_daily_rate numeric DEFAULT 0,
   avg_fixed_rate numeric DEFAULT 0,
   avg_sprint_rate numeric DEFAULT 0,
@@ -328,6 +328,34 @@ CREATE TABLE public.feedback_helpful_votes (
   CONSTRAINT feedback_helpful_votes_pkey PRIMARY KEY (id),
   CONSTRAINT feedback_helpful_votes_feedback_id_fkey FOREIGN KEY (feedback_id) REFERENCES public.feedback(id),
   CONSTRAINT feedback_helpful_votes_voter_id_fkey FOREIGN KEY (voter_id) REFERENCES public.user_accounts(id)
+);
+CREATE TABLE public.help_ticket_attachments (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  ticket_id uuid NOT NULL,
+  file_name text NOT NULL,
+  file_path text NOT NULL,
+  file_size integer,
+  mime_type text,
+  uploaded_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT help_ticket_attachments_pkey PRIMARY KEY (id),
+  CONSTRAINT help_ticket_attachments_ticket_fk FOREIGN KEY (ticket_id) REFERENCES public.help_tickets(id)
+);
+CREATE TABLE public.help_tickets (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  profile_id uuid NOT NULL,
+  ticket_type text NOT NULL CHECK (ticket_type = ANY (ARRAY['technical'::text, 'billing'::text, 'account'::text, 'other'::text])),
+  subject text,
+  description text NOT NULL,
+  status text NOT NULL DEFAULT 'open'::text CHECK (status = ANY (ARRAY['open'::text, 'in_progress'::text, 'resolved'::text, 'closed'::text])),
+  priority text DEFAULT 'medium'::text CHECK (priority = ANY (ARRAY['low'::text, 'medium'::text, 'high'::text, 'urgent'::text])),
+  admin_notes text,
+  assigned_to uuid,
+  created_at timestamp with time zone DEFAULT now(),
+  updated_at timestamp with time zone DEFAULT now(),
+  resolved_at timestamp with time zone,
+  CONSTRAINT help_tickets_pkey PRIMARY KEY (id),
+  CONSTRAINT help_tickets_assigned_fk FOREIGN KEY (assigned_to) REFERENCES public.user_accounts(id),
+  CONSTRAINT help_tickets_profile_fk FOREIGN KEY (profile_id) REFERENCES public.profiles(id)
 );
 CREATE TABLE public.invoices (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
@@ -505,12 +533,12 @@ CREATE TABLE public.time_entries (
   duration_minutes integer,
   hourly_rate numeric NOT NULL,
   amount numeric DEFAULT (((duration_minutes)::numeric / 60.0) * hourly_rate),
-  evidence jsonb DEFAULT '{}'::jsonb,
   status text DEFAULT 'draft'::text CHECK (status = ANY (ARRAY['draft'::text, 'submitted'::text, 'approved'::text, 'rejected'::text])),
   reviewer_comment text,
   approved_at timestamp with time zone,
   created_at timestamp with time zone DEFAULT now(),
   updated_at timestamp with time zone DEFAULT now(),
+  evidence jsonb DEFAULT '{}'::jsonb,
   CONSTRAINT time_entries_pkey PRIMARY KEY (id),
   CONSTRAINT time_entries_contract_id_fkey FOREIGN KEY (contract_id) REFERENCES public.contracts(id),
   CONSTRAINT time_entries_expert_profile_id_fkey FOREIGN KEY (expert_profile_id) REFERENCES public.profiles(id)

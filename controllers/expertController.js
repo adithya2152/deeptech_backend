@@ -171,7 +171,7 @@ export const updateExpertProfile = async (req, res) => {
     });
   } catch (err) {
     console.error("Update Expert Error:", err);
-    res.status(500).json({ message: 'Update failed' });
+    res.status(500).json({ message: 'Update failed', error: err.message, details: err.detail || err.toString() });
   }
 };
 
@@ -302,7 +302,29 @@ export const deleteExpertDocument = async (req, res) => {
   try {
     const { documentId } = req.params;
     const profileId = req.user.profileId;
+    // Fetch the document record to determine storage path and type
+    const { rows } = await pool.query(
+      `SELECT url, document_type FROM expert_documents WHERE id = $1 AND expert_profile_id = $2`,
+      [documentId, profileId]
+    );
 
+    if (!rows.length) return res.status(404).json({ message: 'Not found' });
+
+    const doc = rows[0];
+    const url = doc.url;
+    const type = doc.document_type;
+
+    // Best-effort: remove file from storage if it's an internal path (not an external URL)
+    if (url && !url.startsWith('http')) {
+      try {
+        const bucket = type === 'resume' ? 'expert-private-documents' : 'expert-public-documents';
+        await supabase.storage.from(bucket).remove([url]);
+      } catch (err) {
+        console.warn('[deleteExpertDocument] Storage cleanup failed for', url, err);
+      }
+    }
+
+    // Delete DB record
     const { rowCount } = await pool.query(
       `DELETE FROM expert_documents WHERE id = $1 AND expert_profile_id = $2`,
       [documentId, profileId]

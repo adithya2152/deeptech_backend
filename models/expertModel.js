@@ -28,7 +28,31 @@ const Expert = {
         e.total_hours,
         e.skills,
         e.expert_status,
-        e.is_profile_complete
+        e.is_profile_complete,
+        
+        -- Tier Info
+        (
+          SELECT json_build_object(
+            'tier_name', rt.tier_name,
+            'tier_level', rt.tier_level,
+            'badge_icon', rt.badge_icon
+          )
+          FROM user_rank_tiers rt
+          WHERE rt.user_id = u.id
+        ) as tier,
+
+        -- Badges Info (Top 3 for card view)
+        (
+           SELECT json_agg(t_row)
+           FROM (
+             SELECT id, tag_name, tag_icon, description
+             FROM user_tags t
+             WHERE t.user_id = u.id
+             ORDER BY t.display_priority ASC, t.awarded_at DESC
+             LIMIT 3
+           ) t_row
+        ) as badges
+
       FROM experts e
       JOIN profiles p ON e.expert_profile_id = p.id
       JOIN user_accounts u ON p.user_id = u.id
@@ -91,7 +115,31 @@ const Expert = {
         e.profile_video_url,
         e.rating,
         e.review_count,
-        e.skills
+        e.review_count,
+        e.skills,
+
+        -- Tier Info
+        (
+          SELECT json_build_object(
+            'tier_name', rt.tier_name,
+            'tier_level', rt.tier_level,
+            'badge_icon', rt.badge_icon
+          )
+          FROM user_rank_tiers rt
+          WHERE rt.user_id = u.id
+        ) as tier,
+
+        -- Badges Info (All badges for profile view)
+        (
+           SELECT json_agg(t_row)
+           FROM (
+             SELECT id, tag_name, tag_icon, description
+             FROM user_tags t
+             WHERE t.user_id = u.id
+             ORDER BY t.display_priority ASC, t.awarded_at DESC
+           ) t_row
+        ) as badges
+
       FROM experts e
       JOIN profiles p ON e.expert_profile_id = p.id
       JOIN user_accounts u ON p.user_id = u.id
@@ -133,7 +181,31 @@ const Expert = {
           e.profile_video_url,
           e.rating,
           e.review_count,
-          e.skills
+          e.review_count,
+          e.skills,
+
+        -- Tier Info
+        (
+          SELECT json_build_object(
+            'tier_name', rt.tier_name,
+            'tier_level', rt.tier_level,
+            'badge_icon', rt.badge_icon
+          )
+          FROM user_rank_tiers rt
+          WHERE rt.user_id = u.id
+        ) as tier,
+
+        -- Badges Info
+        (
+           SELECT json_agg(t_row)
+           FROM (
+             SELECT id, tag_name, tag_icon, description
+             FROM user_tags t
+             WHERE t.user_id = u.id
+             ORDER BY t.display_priority ASC, t.awarded_at DESC
+           ) t_row
+        ) as badges
+
         FROM experts e
         JOIN profiles p ON e.expert_profile_id = p.id
         JOIN user_accounts u ON p.user_id = u.id

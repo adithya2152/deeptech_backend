@@ -8,6 +8,7 @@ const BUCKETS = {
   PROJECTS: "projects",
   PROFILE_MEDIA: "profile-media",
   CHAT_FILES: "chat-files",
+  HELP_DESK: "help-desk",
 };
 
 /**
