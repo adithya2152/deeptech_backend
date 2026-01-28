@@ -88,6 +88,7 @@ export const getUserChats = async (userId, role = null) => {
         json_agg(
           json_build_object(
             'id', u.id,
+            'username', p.username,
             'name', u.first_name || ' ' || u.last_name,
             'role', u.role,
             'avatar_url', u.avatar_url
@@ -96,6 +97,7 @@ export const getUserChats = async (userId, role = null) => {
       FROM chats c
       JOIN chat_members cm ON c.id = cm.chat_id
       JOIN user_accounts u ON cm.user_id = u.id
+      LEFT JOIN profiles p ON u.id = p.user_id AND p.is_active = true
       WHERE c.id IN (
         SELECT chat_id FROM chat_members 
         WHERE user_id = $1
@@ -224,6 +226,7 @@ export const getChatDetails = async (chatId, userId) => {
         json_agg(
           json_build_object(
             'id', u.id,
+            'username', p.username,
             'name', u.first_name || ' ' || u.last_name,
             'role', u.role,
             'avatar_url', u.avatar_url,
@@ -233,6 +236,7 @@ export const getChatDetails = async (chatId, userId) => {
       FROM chats c
       JOIN chat_members cm ON c.id = cm.chat_id
       JOIN user_accounts u ON cm.user_id = u.id
+      LEFT JOIN profiles p ON u.id = p.user_id AND p.is_active = true
       WHERE c.id = $1
       AND c.id IN (
         SELECT chat_id FROM chat_members WHERE user_id = $2

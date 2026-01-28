@@ -123,10 +123,11 @@ const Proposal = {
 
   getById: async (id) => {
     const query = `
-      SELECT p.*, 
+        p.*, 
         pr.title as project_title,
         u.first_name as expert_first_name,
-        u.last_name as expert_last_name
+        u.last_name as expert_last_name,
+        prof.username as expert_username
       FROM proposals p
       JOIN projects pr ON p.project_id = pr.id
       JOIN profiles prof ON p.expert_profile_id = prof.id
@@ -144,6 +145,7 @@ const Proposal = {
         pr.currency AS project_currency,
         u.id AS expert_user_id,
         u.first_name || ' ' || u.last_name AS expert_name,
+        prof.username AS expert_username,
         u.avatar_url AS expert_avatar
       FROM proposals p
       JOIN projects pr ON p.project_id = pr.id

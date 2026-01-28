@@ -1,4 +1,6 @@
 import { Invitation } from '../models/invitationModel.js';
+import { notifyExpertInvitationReceived } from './notificationController.js';
+import pool from '../config/db.js';
 
 export const invitationController = {
   async sendInvitation(req, res) {
@@ -55,6 +57,24 @@ export const invitationController = {
       }
 
       const invitation = await Invitation.create(project_id, expert_profile_id, message, model, terms);
+
+      // Fetch project and buyer details for notification
+      const projectResult = await pool.query('SELECT title, currency FROM projects WHERE id = $1', [project_id]);
+      const projectTitle = projectResult.rows[0]?.title || 'Unknown Project';
+
+      // Get buyer name
+      const buyerResult = await pool.query(
+        `SELECT u.first_name, u.last_name, p.company_name 
+         FROM profiles p 
+         JOIN user_accounts u ON p.user_id = u.id 
+         WHERE p.id = $1`,
+        [buyerProfileId]
+      );
+      const buyer = buyerResult.rows[0];
+      const buyerName = buyer?.company_name || `${buyer?.first_name} ${buyer?.last_name}`;
+
+      await notifyExpertInvitationReceived(expert_profile_id, buyerName, projectTitle, project_id);
+
       res.json({ success: true, data: invitation });
     } catch (err) {
       console.error('Error sending invitation:', err);

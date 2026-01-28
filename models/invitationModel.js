@@ -151,8 +151,9 @@ export const Invitation = {
       const contractRes = await client.query(
         `INSERT INTO contracts (
            project_id, buyer_profile_id, expert_profile_id, 
-           engagement_model, payment_terms, status, start_date, total_amount, currency
-         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) 
+           engagement_model, payment_terms, status, start_date, total_amount, currency,
+           nda_status
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'draft') 
          RETURNING id`,
         [
           project.id,

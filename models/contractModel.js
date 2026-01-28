@@ -23,6 +23,8 @@ const Contract = {
       payment_terms,
       start_date,
       currency,
+      nda_custom_content,
+      nda_status // Allow explicit status override
     } = data;
 
     const existing = await Contract.findActiveOrPendingForPair(
@@ -64,6 +66,11 @@ const Contract = {
       total_amount = hourlyRate > 0 && estimatedHours > 0 ? hourlyRate * estimatedHours : 0;
     }
 
+    // Determine NDA status:
+    // 1. If explicitly provided, use it.
+    // 2. Otherwise default to 'draft', requiring the buyer to explicitly 'Send' or contracted 'Skip' via UI.
+    const finalNdaStatus = nda_status || 'draft';
+
     const query = `
       INSERT INTO contracts (
         project_id, 
@@ -75,9 +82,11 @@ const Contract = {
         status,
         created_at,
         total_amount,
-        currency
+        currency,
+        nda_status,
+        nda_custom_content
       )
-      VALUES ($1, $2, $3, $4, $5, $6, 'pending', NOW(), $7, COALESCE($8, 'INR'))
+      VALUES ($1, $2, $3, $4, $5, $6, 'pending', NOW(), $7, COALESCE($8, 'INR'), $9, $10)
       RETURNING *;
     `;
 
@@ -90,6 +99,8 @@ const Contract = {
       start_date,
       total_amount,
       currency,
+      finalNdaStatus,
+      nda_custom_content
     ];
 
     const { rows } = await pool.query(query, values);
@@ -207,10 +218,12 @@ const Contract = {
         p.description as project_description,
         p.domain as project_domain,
         p.trl_level as project_trl,
+        pe.username as expert_username,
         ue.id as expert_user_id,
         ue.first_name as expert_first_name, 
         ue.last_name as expert_last_name,
         ue.email as expert_email,
+        pb.username as buyer_username,
         ub.id as buyer_user_id,
         ub.first_name as buyer_first_name,
         ub.last_name as buyer_last_name
@@ -233,9 +246,11 @@ const Contract = {
       SELECT 
         c.*, 
         p.title as project_title,
+        pe.username as expert_username,
         ue.id as expert_user_id,
         ue.first_name as expert_first_name, 
         ue.last_name as expert_last_name,
+        pb.username as buyer_username,
         ub.id as buyer_user_id,
         ub.first_name as buyer_first_name,
         ub.last_name as buyer_last_name

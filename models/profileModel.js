@@ -398,7 +398,9 @@ const ProfileModel = {
         f.comment AS comment,
         f.helpful_count,
         f.created_at,
-        (u.first_name || ' ' || u.last_name) AS giver_name,
+        (u.first_name || ' ' || u.last_name) AS full_name,
+        p_giver.username AS giver_username,
+        p_giver.profile_type AS giver_role,
         u.avatar_url AS giver_avatar,
         pr.title AS project_title
       FROM feedback f
@@ -417,7 +419,9 @@ const ProfileModel = {
       rating: r.rating,
       comment: r.comment || r.message || '',
       created_at: r.created_at,
-      giver_name: r.giver_name || 'Anonymous',
+      created_at: r.created_at,
+      // Prioritize Username -> "Client"/"Expert" fallback. Hide real name.
+      giver_name: r.giver_username || (r.giver_role === 'buyer' ? 'Client' : 'Expert'),
       giver_avatar: r.giver_avatar || null,
       project_title: r.project_title || null,
       helpful_count: Number(r.helpful_count || 0),

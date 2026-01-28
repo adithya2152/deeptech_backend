@@ -51,17 +51,20 @@ export const getLeaderboard = async (req, res) => {
         const { rows } = await pool.query(
             `SELECT us.user_id,
               us.overall_score,
+              p.id as profile_id,
+              p.username,
               u.first_name,
               u.last_name,
               u.avatar_url,
               rt.tier_name,
               rt.tier_level,
+              rt.profile_id as rt_profile_id,
               COALESCE(earnings.total_earned, 0) as total_earned,
               COALESCE(earnings.invoices_paid, 0) as invoices_paid
        FROM public.user_scores us
        JOIN public.user_accounts u ON u.id = us.user_id
        JOIN public.profiles p ON p.user_id = u.id AND p.profile_type = $1
-       LEFT JOIN public.user_rank_tiers rt ON rt.user_id = us.user_id
+       LEFT JOIN public.user_rank_tiers rt ON rt.user_id = u.id
        LEFT JOIN (
          SELECT c.expert_profile_id,
                 SUM(i.amount) as total_earned,

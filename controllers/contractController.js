@@ -25,7 +25,9 @@ const checkAndAutoActivate = async (contractId) => {
     if (!contract.buyer_signed_at || !contract.expert_signed_at) return;
 
     // 2. NDA must be resolved (signed, skipped, or not required)
-    if (contract.nda_required && ['draft', 'sent'].includes(contract.nda_status)) return;
+    // 2. NDA must be resolved (signed or skipped)
+    // If status is 'draft', 'pending', or 'sent', DO NOT ACTIVATE.
+    if (!contract.nda_status || ['draft', 'pending', 'sent'].includes(contract.nda_status)) return;
 
     // 3. Must NOT be 'fixed' (Fixed requires funding)
     if (contract.engagement_model === 'fixed') return;
@@ -318,9 +320,7 @@ export const signContract = async (req, res) => {
       await notifyContractSigned(otherPartyId, signerName, projectTitle, contractId, isFullySigned);
     } catch (e) { console.error("Notify error", e); }
 
-
-
-    await checkAndAutoActivate(contractId);
+    // await checkAndAutoActivate(contractId); // Disable auto-activation
     const finalContract = await Contract.getById(contractId);
 
     res.json({ success: true, message: "Contract signed successfully", data: finalContract });
@@ -356,7 +356,7 @@ export const signNda = async (req, res) => {
     }
 
     await Contract.signNda(contractId, signature_name, ipAddress);
-    await checkAndAutoActivate(contractId);
+    // await checkAndAutoActivate(contractId); // Disable auto-activation
     const finalContract = await Contract.getById(contractId);
     res.json({ success: true, message: "NDA signed", data: finalContract });
   } catch (e) {
@@ -374,11 +374,29 @@ export const activateContract = async (req, res) => {
     // Or restricted to Buyer/System.
 
     // This endpoint forces activation.
+    const contractToCheck = await Contract.getById(contractId);
+    if (!contractToCheck) return res.status(404).json({ message: "Contract not found" });
+
+    // Validate Escrow Funding
+    // For Fixed, Sprint, and Daily models, we typically require full funding of the agreed amount before activation.
+    // Hourly might be pay-as-you-go, so strict blocking might not apply (or require min deposit).
+    if (contractToCheck.engagement_model !== 'hourly') {
+      const balance = Number(contractToCheck.escrow_balance) || 0;
+      const required = Number(contractToCheck.total_amount) || 0;
+
+      // Allow a small epsilon for floating point issues, or just strict compare
+      if (balance < required) {
+        return res.status(400).json({
+          success: false,
+          message: `Insufficient escrow balance. Please fund escrow to activate.`
+        });
+      }
+    }
+
     const updated = await Contract.activateContract(contractId);
 
     // Update Project Status
-    const contract = await Contract.getById(contractId);
-    await pool.query("UPDATE projects SET status = 'active' WHERE id = $1", [contract.project_id]);
+    await pool.query("UPDATE projects SET status = 'active' WHERE id = $1", [contractToCheck.project_id]);
 
     res.json({ success: true, message: "Contract activated", data: updated });
   } catch (e) {
@@ -412,7 +430,7 @@ export const updateNda = async (req, res) => {
       nda_status || "sent"
     );
 
-    await checkAndAutoActivate(contractId);
+    // await checkAndAutoActivate(contractId); // Disable auto-activation
     const finalContract = await Contract.getById(contractId);
 
     res.json({ success: true, data: finalContract });
