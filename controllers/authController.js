@@ -1565,7 +1565,8 @@ export const handleGoogleCallback = async (req, res) => {
       profileId = newProfileResult.rows[0].id;
 
       // Create buyer record
-      await pool.query("INSERT INTO buyers (profile_id) VALUES ($1)", [
+      await pool.query("INSERT INTO buyers (id, buyer_profile_id) VALUES ($1, $2)", [
+        userId,
         profileId,
       ]);
     }
@@ -1573,9 +1574,9 @@ export const handleGoogleCallback = async (req, res) => {
     // Generate JWT tokens
     const tokens = generateTokens(userId, user.email, profileType, profileId);
 
-    // Update last login
-    await pool.query("UPDATE profiles SET last_login = NOW() WHERE id = $1", [
-      profileId,
+    // Update last login on user_accounts
+    await pool.query("UPDATE user_accounts SET last_login = NOW() WHERE id = $1", [
+      userId,
     ]);
 
     // Redirect to frontend with tokens

@@ -348,13 +348,11 @@ CREATE TABLE public.help_tickets (
   description text NOT NULL,
   status text NOT NULL DEFAULT 'open'::text CHECK (status = ANY (ARRAY['open'::text, 'in_progress'::text, 'resolved'::text, 'closed'::text])),
   priority text DEFAULT 'medium'::text CHECK (priority = ANY (ARRAY['low'::text, 'medium'::text, 'high'::text, 'urgent'::text])),
-  admin_notes text,
-  assigned_to uuid,
+  admin_reply text,
   created_at timestamp with time zone DEFAULT now(),
   updated_at timestamp with time zone DEFAULT now(),
   resolved_at timestamp with time zone,
   CONSTRAINT help_tickets_pkey PRIMARY KEY (id),
-  CONSTRAINT help_tickets_assigned_fk FOREIGN KEY (assigned_to) REFERENCES public.user_accounts(id),
   CONSTRAINT help_tickets_profile_fk FOREIGN KEY (profile_id) REFERENCES public.profiles(id)
 );
 CREATE TABLE public.invoices (
@@ -561,7 +559,6 @@ CREATE TABLE public.user_accounts (
   phone character varying,
   phone_verified boolean DEFAULT false,
   banner_url text,
-  username text UNIQUE,
   country text,
   timezone text,
   profile_completion integer DEFAULT 0 CHECK (profile_completion >= 0 AND profile_completion <= 100),

@@ -27,15 +27,19 @@ const HelpTicket = {
         let query = `
       SELECT t.*, 
              p.profile_type,
+             u.first_name,
+             u.last_name,
+             u.email,
              json_agg(a.*) as attachments
       FROM help_tickets t
       LEFT JOIN profiles p ON t.profile_id = p.id
+      LEFT JOIN user_accounts u ON p.user_id = u.id
       LEFT JOIN help_ticket_attachments a ON t.id = a.ticket_id
     `;
 
         // Add filtering logic here if needed
 
-        query += ` GROUP BY t.id, p.id ORDER BY t.created_at DESC`;
+        query += ` GROUP BY t.id, p.id, u.id ORDER BY t.created_at DESC`;
 
         const result = await pool.query(query);
         return result.rows;
@@ -54,13 +58,13 @@ const HelpTicket = {
         return result.rows;
     },
 
-    updateStatus: async (ticketId, status, adminNotes) => {
+    updateStatus: async (ticketId, status, adminReply) => {
         const result = await pool.query(
             `UPDATE help_tickets 
-       SET status = $1, admin_notes = COALESCE($2, admin_notes), updated_at = NOW(), resolved_at = CASE WHEN $1 = 'resolved' THEN NOW() ELSE resolved_at END
+       SET status = $1, admin_reply = COALESCE($2, admin_reply), updated_at = NOW(), resolved_at = CASE WHEN $1 = 'resolved' THEN NOW() ELSE resolved_at END
        WHERE id = $3
        RETURNING *`,
-            [status, adminNotes, ticketId]
+            [status, adminReply, ticketId]
         );
         return result.rows[0];
     }

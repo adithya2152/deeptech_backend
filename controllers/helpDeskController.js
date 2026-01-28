@@ -5,16 +5,30 @@ import { uploadFile, BUCKETS, initializeStorageBuckets } from '../utils/storage.
 
 export const createTicket = async (req, res) => {
     try {
-        const { type, subject, description, priority } = req.body;
-        const profileId = req.user.profileId; // Switch to profileId
+        const { type, subject, description, priority: rawPriority } = req.body;
+        let profileId = req.user.profileId;
 
+        // Fallback: try to find a profile if not in token
         if (!profileId) {
-            return res.status(400).json({ success: false, message: 'No active profile found for this user.' });
+            const { rows } = await pool.query('SELECT id FROM profiles WHERE user_id = $1 LIMIT 1', [req.user.id]);
+            if (rows.length > 0) {
+                profileId = rows[0].id;
+            } else {
+                return res.status(400).json({ success: false, message: 'No active profile found for this user.' });
+            }
         }
 
         if (!type || !description) {
             return res.status(400).json({ success: false, message: 'Type and description are required' });
         }
+
+        const allowedTypes = ['technical', 'billing', 'account', 'other'];
+        if (!allowedTypes.includes(type)) {
+            return res.status(400).json({ success: false, message: `Invalid ticket type. Allowed: ${allowedTypes.join(', ')}` });
+        }
+
+        const validPriorities = ['low', 'medium', 'high', 'urgent'];
+        const priority = validPriorities.includes(rawPriority) ? rawPriority : 'medium';
 
         const ticket = await HelpTicket.create({ profileId, type, subject, description, priority });
 
@@ -115,11 +129,15 @@ export const replyToTicket = async (req, res) => {
         await NotificationModel.create(
             ticket.profile_id,
             'helpdesk_reply',
-            `Support Reply: ${ticket.subject || 'Ticket'}`,
+            `Support Reply: Ticket #${ticket.id.slice(0, 8)}`,
             `Your help desk ticket "${ticket.subject || 'No Subject'}" has received a reply from the admin.\n\nReply: ${message}`,
-            null
+            `/support?ticketId=${ticket.id}`
         );
-        res.json({ success: true });
+
+        // Update admin_reply with the reply so it persists
+        const updateResult = await pool.query('UPDATE help_tickets SET admin_reply = $1, updated_at = NOW() WHERE id = $2 RETURNING admin_reply', [message, id]);
+
+        res.json({ success: true, admin_reply: updateResult.rows[0].admin_reply });
     } catch (error) {
         console.error('Error replying to help ticket:', error);
         res.status(500).json({ success: false, message: 'Server error' });
