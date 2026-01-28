@@ -2,6 +2,7 @@ import express from 'express';
 import { createTicket, getMyTickets, getAllTickets, updateTicketStatus } from '../controllers/helpDeskController.js';
 import { auth } from '../middleware/auth.js';
 import { requireRole } from '../middleware/rbac.js';
+import { replyToTicket } from '../controllers/helpDeskController.js';
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
@@ -33,7 +34,11 @@ router.post('/', auth, upload.array('attachments', 5), createTicket);
 router.get('/my-tickets', auth, getMyTickets);
 
 // Admin routes
+
 router.get('/all', auth, requireRole('admin'), getAllTickets);
-router.patch('/:id/status', auth, requireRole('admin'), updateTicketStatus);
+// Allow both admin and ticket owner (buyer/expert) to close their own tickets
+router.patch('/:id/status', auth, updateTicketStatus);
+router.post('/:id/reply', auth, requireRole('admin'), replyToTicket);
+router.post('/:id/reply', auth, requireRole('admin'), replyToTicket);
 
 export default router;

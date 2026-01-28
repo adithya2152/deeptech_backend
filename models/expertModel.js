@@ -6,6 +6,7 @@ const Expert = {
       SELECT 
         e.expert_profile_id,
         p.id as profile_id,
+        p.username,
         u.id as user_id,
         u.first_name,
         u.last_name,
@@ -89,6 +90,7 @@ const Expert = {
       SELECT
         e.expert_profile_id,
         p.id as profile_id,
+        p.username,
         u.id as user_id,
         u.first_name,
         u.last_name,
@@ -155,6 +157,7 @@ const Expert = {
         SELECT
           e.expert_profile_id,
           p.id as profile_id,
+          p.username,
           u.id as user_id,
           u.first_name,
           u.last_name,
@@ -292,7 +295,7 @@ const Expert = {
   getExpertByUserId: async (userId) => {
     const { rows } = await pool.query(
       `
-      SELECT e.*, p.id as profile_id
+      SELECT e.*, p.id as profile_id, p.username
       FROM experts e
       JOIN profiles p ON e.expert_profile_id = p.id
       WHERE p.user_id = $1 AND p.profile_type = 'expert'

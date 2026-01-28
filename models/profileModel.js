@@ -4,7 +4,7 @@ const ProfileModel = {
   // Get active profile for a user
   getActiveProfile: async (userId) => {
     const { rows } = await pool.query(
-      `SELECT id, profile_type, is_active FROM profiles 
+      `SELECT id, profile_type, is_active, username FROM profiles 
        WHERE user_id = $1 AND is_active = true
        LIMIT 1`,
       [userId]
@@ -34,12 +34,13 @@ const ProfileModel = {
     const { rows } = await pool.query(
       `
       SELECT
-        id, email, first_name, last_name, username, role,
-        avatar_url, banner_url, timezone, profile_completion, 
-        created_at, updated_at, last_login, email_verified, country,
-        settings, preferred_language
-      FROM user_accounts
-      WHERE id = $1
+        u.id, u.email, u.first_name, u.last_name, u.role,
+        u.avatar_url, u.banner_url, u.timezone, u.profile_completion, 
+        u.created_at, u.updated_at, u.last_login, u.email_verified, u.country,
+        u.settings, u.preferred_language, p.username
+      FROM user_accounts u
+      LEFT JOIN profiles p ON u.id = p.user_id AND p.is_active = true
+      WHERE u.id = $1
       `,
       [userId]
     );
@@ -93,7 +94,8 @@ const ProfileModel = {
         u.avatar_url,
         u.banner_url,
         u.timezone,
-        u.country
+        u.country,
+        p.username
       FROM experts e
       JOIN profiles p ON e.expert_profile_id = p.id
       JOIN user_accounts u ON p.user_id = u.id
@@ -178,7 +180,8 @@ const ProfileModel = {
         u.avatar_url,
         u.banner_url,
         u.timezone,
-        u.country
+        u.country,
+        p.username
       FROM buyers b
       JOIN profiles p ON b.buyer_profile_id = p.id
       JOIN user_accounts u ON p.user_id = u.id
@@ -193,7 +196,6 @@ const ProfileModel = {
     const allowed = [
       "first_name",
       "last_name",
-      "username",
       "country",
       "timezone",
       "avatar_url",
@@ -221,6 +223,51 @@ const ProfileModel = {
       UPDATE user_accounts
       SET ${fields.join(", ")}, updated_at = NOW()
       WHERE id = $${i}
+      RETURNING *
+      `,
+      values
+    );
+
+    return rows[0];
+  },
+
+  updateActiveProfile: async (userId, data) => {
+    // 1. Check for username uniqueness if being updated
+    if (data.username) {
+      const sanitized = data.username.toLowerCase().trim().slice(0, 10);
+      data.username = sanitized; // Enforce sanitization
+
+      const { rows: dupes } = await pool.query(
+        `SELECT 1 FROM profiles WHERE username = $1 AND user_id != $2`,
+        [sanitized, userId]
+      );
+
+      if (dupes.length > 0) {
+        throw new Error("Username is already taken");
+      }
+    }
+
+    const allowed = ["username"];
+    const fields = [];
+    const values = [];
+    let i = 1;
+
+    allowed.forEach((key) => {
+      if (data[key] !== undefined) {
+        fields.push(`${key} = $${i++}`);
+        values.push(data[key]);
+      }
+    });
+
+    if (!fields.length) return null;
+
+    values.push(userId);
+
+    const { rows } = await pool.query(
+      `
+      UPDATE profiles
+      SET ${fields.join(", ")}, updated_at = NOW()
+      WHERE user_id = $${i} AND is_active = true
       RETURNING *
       `,
       values

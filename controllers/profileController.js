@@ -59,6 +59,7 @@ export const updateMyProfile = async (req, res) => {
 
 
     await ProfileModel.updateBaseProfile(userId, req.body);
+    await ProfileModel.updateActiveProfile(userId, req.body);
 
     // Get active profile to determine role
     const activeProfile = await ProfileModel.getActiveProfile(userId);
@@ -89,7 +90,7 @@ export const updateMyProfile = async (req, res) => {
     });
   } catch (err) {
     console.error(err);
-    res.status(500).json({ success: false, message: "Update failed" });
+    res.status(500).json({ success: false, message: err.message || "Update failed" });
   }
 };
 

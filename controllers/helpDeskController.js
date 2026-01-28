@@ -1,3 +1,5 @@
+import NotificationModel from '../models/notificationModel.js';
+import pool from '../config/db.js';
 import HelpTicket from '../models/helpTicketModel.js';
 import { uploadFile, BUCKETS, initializeStorageBuckets } from '../utils/storage.js';
 
@@ -89,3 +91,37 @@ export const updateTicketStatus = async (req, res) => {
         res.status(500).json({ success: false, message: 'Server error' });
     }
 }
+
+export const replyToTicket = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { message } = req.body;
+        if (!message || !message.trim()) {
+            return res.status(400).json({ success: false, message: 'Message is required' });
+        }
+        // Find the ticket and its profile
+        const ticketResult = await pool.query('SELECT * FROM help_tickets WHERE id = $1', [id]);
+        const ticket = ticketResult.rows[0];
+        if (!ticket) {
+            return res.status(404).json({ success: false, message: 'Ticket not found' });
+        }
+        // Check that the profile exists
+        const profileResult = await pool.query('SELECT id FROM profiles WHERE id = $1', [ticket.profile_id]);
+        const profile = profileResult.rows[0];
+        if (!profile) {
+            return res.status(404).json({ success: false, message: 'Profile not found' });
+        }
+        // Create notification for the profile
+        await NotificationModel.create(
+            ticket.profile_id,
+            'helpdesk_reply',
+            `Support Reply: ${ticket.subject || 'Ticket'}`,
+            `Your help desk ticket "${ticket.subject || 'No Subject'}" has received a reply from the admin.\n\nReply: ${message}`,
+            null
+        );
+        res.json({ success: true });
+    } catch (error) {
+        console.error('Error replying to help ticket:', error);
+        res.status(500).json({ success: false, message: 'Server error' });
+    }
+};

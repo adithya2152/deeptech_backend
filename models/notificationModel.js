@@ -4,15 +4,15 @@ const NotificationModel = {
     /**
      * Create a new notification
      */
-    create: async (userId, type, title, message, link = null) => {
-        const sql = `
-      INSERT INTO notifications (user_id, type, title, message, link)
-      VALUES ($1, $2, $3, $4, $5)
-      RETURNING *
-    `;
-        const { rows } = await pool.query(sql, [userId, type, title, message, link]);
-        return rows[0];
-    },
+        create: async (profileId, type, title, message, link = null) => {
+                const sql = `
+            INSERT INTO notifications (profile_id, type, title, message, link)
+            VALUES ($1, $2, $3, $4, $5)
+            RETURNING *
+        `;
+                const { rows } = await pool.query(sql, [profileId, type, title, message, link]);
+                return rows[0];
+        },
 
     /**
      * Create notifications for all experts who bid on a project
@@ -20,7 +20,7 @@ const NotificationModel = {
     notifyProjectExperts: async (projectId, type, title, message, link = null) => {
         // Get all experts who have submitted proposals for this project
         const { rows: experts } = await pool.query(
-            `SELECT DISTINCT p.user_id 
+                `SELECT DISTINCT p.id as profile_id 
        FROM proposals pr
        JOIN profiles p ON p.id = pr.expert_profile_id
        WHERE pr.project_id = $1`,
@@ -32,8 +32,8 @@ const NotificationModel = {
         // Create notifications for each expert
         const notifications = [];
         for (const expert of experts) {
-            const notification = await NotificationModel.create(
-                expert.user_id,
+                const notification = await NotificationModel.create(
+                    expert.profile_id,
                 type,
                 title,
                 message,

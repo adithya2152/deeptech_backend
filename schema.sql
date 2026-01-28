@@ -427,6 +427,7 @@ CREATE TABLE public.profiles (
   is_active boolean DEFAULT true,
   created_at timestamp with time zone DEFAULT now(),
   updated_at timestamp with time zone DEFAULT now(),
+  username text,
   CONSTRAINT profiles_pkey PRIMARY KEY (id),
   CONSTRAINT profiles_user_fk FOREIGN KEY (user_id) REFERENCES public.user_accounts(id)
 );

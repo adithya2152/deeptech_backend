@@ -11,7 +11,7 @@ const refreshTokenExpiry = process.env.REFRESH_TOKEN_EXPIRY || "7d";
 const getActiveProfile = async (userId) => {
   try {
     const { rows } = await pool.query(
-      `SELECT id, profile_type, is_active 
+      `SELECT id, profile_type, is_active, username 
        FROM profiles 
        WHERE user_id = $1 AND is_active = true
        LIMIT 1`,
@@ -386,6 +386,7 @@ export const login = async (req, res) => {
           last_name: user.last_name,
           role: activeRole,
           profileId: profileId,
+          username: activeProfile?.username,
           avatar_url: user.avatar_url,
           banner_url: user.banner_url,
           profile_completion: user.profile_completion,
@@ -670,6 +671,7 @@ export const getCurrentUser = async (req, res) => {
           last_name: user.last_name,
           role: activeProfile?.profile_type || user.role,
           profileId: activeProfile?.id || null,
+          username: activeProfile?.username,
           avatar_url: user.avatar_url,
           banner_url: user.banner_url,
           timezone: user.timezone,
@@ -690,6 +692,7 @@ export const getCurrentUser = async (req, res) => {
 };
 
 export const updateCurrentUser = async (req, res) => {
+  const client = await pool.connect();
   try {
     const userId = req.user?.id;
 
@@ -707,9 +710,53 @@ export const updateCurrentUser = async (req, res) => {
       banner_url,
       timezone,
       preferred_language,
+      username, // Extract username from request body
     } = req.body;
 
-    const result = await pool.query(
+    await client.query("BEGIN");
+
+    // 1. Handle Username Update (if provided)
+    let activeProfileId = null;
+    let newUsername = null;
+
+    if (username !== undefined) {
+      // Get active profile to update username
+      const activeProfile = await getActiveProfile(userId);
+      activeProfileId = activeProfile?.id;
+
+      if (activeProfileId) {
+        const sanitizedUsername = username.toLowerCase().trim().slice(0, 10); // Enforce length limit
+
+        // Check if username has changed
+        if (sanitizedUsername !== activeProfile.username) {
+          // Check for uniqueness
+          const duplicateCheck = await client.query(
+            `SELECT 1 FROM profiles WHERE username = $1 AND id != $2`,
+            [sanitizedUsername, activeProfileId]
+          );
+
+          if (duplicateCheck.rows.length > 0) {
+            await client.query("ROLLBACK");
+            return res.status(400).json({
+              success: false,
+              message: "Username is already taken",
+            });
+          }
+
+          // Update username in profiles table
+          await client.query(
+            `UPDATE profiles SET username = $1, updated_at = NOW() WHERE id = $2`,
+            [sanitizedUsername, activeProfileId]
+          );
+          newUsername = sanitizedUsername;
+        } else {
+          newUsername = activeProfile.username;
+        }
+      }
+    }
+
+    // 2. Update User Accounts
+    const result = await client.query(
       `
       UPDATE user_accounts
       SET
@@ -735,21 +782,42 @@ export const updateCurrentUser = async (req, res) => {
     );
 
     if (result.rows.length === 0) {
+      await client.query("ROLLBACK");
       return res
         .status(404)
         .json({ success: false, message: "User not found" });
     }
 
+    await client.query("COMMIT");
+
+    const userData = result.rows[0];
+    // Attach the updated (or existing) username to the response
+    if (newUsername !== null) {
+      userData.username = newUsername;
+    } else {
+      // If username wasn't updated, fetch it to be safe, or just return what we have?
+      // Ideally we return the complete user object. 
+      // Let's rely on the frontend to keep the old username if we didn't send it, 
+      // OR better: fetch it if we didn't just set it.
+      if (activeProfileId) {
+        const pRes = await pool.query('SELECT username FROM profiles WHERE id = $1', [activeProfileId]);
+        userData.username = pRes.rows[0]?.username;
+      }
+    }
+
     return res.status(200).json({
       success: true,
-      data: result.rows[0],
+      data: userData,
     });
   } catch (error) {
+    await client.query("ROLLBACK");
     console.error("Update current user error:", error);
     return res.status(500).json({
       success: false,
       message: "Failed to update profile",
     });
+  } finally {
+    client.release();
   }
 };
 
@@ -1348,7 +1416,7 @@ export const verifyGoogleOAuth = async (req, res) => {
         ua.email,
         ua.first_name,
         ua.last_name,
-        ua.username,
+        p.username,
         ua.avatar_url,
         ua.banner_url,
         ua.country,
@@ -1409,7 +1477,7 @@ export const handleGoogleCallback = async (req, res) => {
 
     // Check if user exists in user_accounts
     const userAccountResult = await pool.query(
-      "SELECT id, email FROM user_accounts WHERE id = $1",
+      "SELECT id, email, first_name, last_name, avatar_url FROM user_accounts WHERE id = $1",
       [user.id],
     );
 
@@ -1417,11 +1485,49 @@ export const handleGoogleCallback = async (req, res) => {
 
     // If user doesn't exist, create them
     if (userAccountResult.rows.length === 0) {
+      // Extract best possible name data
+      const meta = user.user_metadata || {};
+      const firstName = meta.given_name || meta.first_name || meta.full_name?.split(' ')[0] || meta.name?.split(' ')[0] || "User";
+      const lastName = meta.family_name || meta.last_name || meta.full_name?.split(' ').slice(1).join(' ') || meta.name?.split(' ').slice(1).join(' ') || "";
+      const avatarUrl = meta.avatar_url || meta.picture || null;
+
       await pool.query(
-        `INSERT INTO user_accounts (id, email, email_verified, auth_provider)
-         VALUES ($1, $2, true, 'google')`,
-        [user.id, user.email],
+        `INSERT INTO user_accounts (id, email, first_name, last_name, role, email_verified, auth_provider, avatar_url)
+         VALUES ($1, $2, $3, $4, 'buyer', true, 'google', $5)`,
+        [user.id, user.email, firstName, lastName, avatarUrl],
       );
+    } else {
+      // User exists, check if name or avatar is missing (self-healing for legacy users)
+      const existingUser = userAccountResult.rows[0];
+      const updates = [];
+      const values = [userId];
+      let paramCount = 2; // Start from $2
+
+      // Extract best possible name data
+      const meta = user.user_metadata || {};
+      const newFirstName = meta.given_name || meta.first_name || meta.full_name?.split(' ')[0] || meta.name?.split(' ')[0] || "User";
+      const newLastName = meta.family_name || meta.last_name || meta.full_name?.split(' ').slice(1).join(' ') || meta.name?.split(' ').slice(1).join(' ') || "";
+      const newAvatarUrl = meta.avatar_url || meta.picture || null;
+
+      if (!existingUser.first_name || !existingUser.last_name || existingUser.first_name === "User") {
+        updates.push(`first_name = $${paramCount++}`);
+        values.push(newFirstName);
+        updates.push(`last_name = $${paramCount++}`);
+        values.push(newLastName);
+      }
+
+      // Check if avatar is missing and we have one from Google
+      if (!existingUser.avatar_url && newAvatarUrl) {
+        updates.push(`avatar_url = $${paramCount++}`);
+        values.push(newAvatarUrl);
+      }
+
+      if (updates.length > 0) {
+        await pool.query(
+          `UPDATE user_accounts SET ${updates.join(', ')} WHERE id = $1`,
+          values
+        );
+      }
     }
 
     // Check if user has any profiles
@@ -1440,16 +1546,20 @@ export const handleGoogleCallback = async (req, res) => {
       profileType = activeProfile.profile_type;
       profileId = activeProfile.id;
     } else {
+      // Generate a base username from email or name
+      const baseUsername = (user.user_metadata?.full_name || user.email.split('@')[0])
+        .toLowerCase()
+        .replace(/[^a-z0-9]/g, '')
+        .substring(0, 15);
+      const uniqueSuffix = Math.floor(1000 + Math.random() * 9000); // 4 digit random
+      const username = `${baseUsername}${uniqueSuffix}`;
+
       // New user - create a default buyer profile
       const newProfileResult = await pool.query(
-        `INSERT INTO profiles (user_id, profile_type, first_name, last_name, is_active)
-         VALUES ($1, 'buyer', $2, $3, true)
+        `INSERT INTO profiles (user_id, profile_type, is_active, username)
+         VALUES ($1, 'buyer', true, $2)
          RETURNING id, profile_type`,
-        [
-          userId,
-          user.user_metadata?.full_name?.split(" ")[0] || "User",
-          user.user_metadata?.full_name?.split(" ").slice(1).join(" ") || "",
-        ],
+        [userId, username],
       );
       profileType = "buyer";
       profileId = newProfileResult.rows[0].id;
