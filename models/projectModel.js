@@ -314,13 +314,14 @@ const Project = {
         pr.*,
         u.first_name || ' ' || u.last_name as expert_name,
         u.email as expert_email,
-        u.avatar_url as expert_avatar
+        u.avatar_url as expert_avatar,
+        pr.match_score
       FROM proposals pr
       JOIN profiles ep ON pr.expert_profile_id = ep.id
       JOIN user_accounts u ON ep.user_id = u.id
       WHERE pr.project_id = $1
       AND pr.status = 'pending'
-      ORDER BY pr.created_at DESC;
+      ORDER BY pr.match_score DESC, pr.created_at DESC;
     `;
     const { rows } = await pool.query(sql, [projectId]);
     return rows;
